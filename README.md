@@ -7,10 +7,17 @@ times. Slots appear at scheduled reviews (01:30, 06:30, 09:30, 13:30,
 cancelling), so the bot polls continuously until every container on the
 list is booked.
 
-**Attach mode:** you log in to N4 by hand in a "debug" Chrome; the bot
-connects to that same Chrome and only does the repetitive part — set
-tower, enter container, read openings, Save. It never types credentials
-and never touches Trucking Company or Line Operator.
+**Two ways to connect:**
+
+- **Auto-start (easiest):** save the N4 username/password once under
+  the UI's "N4 login" card — pressing Start then opens Chrome, logs in
+  to N4 and recovers from mid-run session expiry, all by itself.
+- **Attach mode:** leave the login blank and log in by hand in a debug
+  Chrome; the bot attaches to it and only does the repetitive part.
+
+Either way the bot never touches Trucking Company or Line Operator —
+set those by hand in the dialog (and it only touches Transaction Type
+when you pick one).
 
 ## Key rules built in
 
@@ -46,15 +53,19 @@ a **Truck Booking Bot** shortcut plus one **N4 Chrome — Tower <n>**
 shortcut per tower on the Desktop, so nothing below needs the command
 prompt.
 
-1. Double-click **N4 Chrome — Tower <n>** for each tower you want to
-   run (each opens its own Chrome).
-2. In each Chrome: log in to N4, click **+** to open **Add
-   Appointment**, hand-set **Trucking Company = AVEMEL LOG** (and the
-   Transaction Type if you'll use "leave as set").
-3. Double-click **Truck Booking Bot** — it installs requirements on
+1. Double-click **Truck Booking Bot** — it installs requirements on
    first run, starts the UI, and opens http://localhost:8123 by itself.
-4. Paste/import the container list, tick the towers, press **Start**.
+2. First time only: save the N4 username/password in the "N4 login"
+   card (kept in the local `config.json`, which is gitignored).
+3. Manage the container list on the page (add/remove rows, paste a
+   list, or import an N4 report — top of the list is booked first).
+4. Pick the Transaction Type (Pick Up Import / Drop Off Export), tick
+   the towers, press **Start** — Chrome opens and logs in by itself,
+   one per tower.
 5. Watch progress; you get a desktop toast on every booking.
+
+No saved login? Use the **N4 Chrome — Tower <n>** shortcuts, log in by
+hand in each, open the **+** Add Appointment screen, then press Start.
 
 ## Command line
 

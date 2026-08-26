@@ -46,13 +46,15 @@ def cmd_run(cfg, args):
     session = N4Session(cfg, debug_url=debug_url)
     log = logging.getLogger("truckbot")
     try:
-        session.connect()
+        # attaches to a running debug Chrome, or (with saved credentials)
+        # launches one and logs in to N4 automatically
+        session.attach_or_launch()
     except Exception as e:
         log.error(
-            "Could not connect to Chrome on %s.\n"
-            "Start Chrome with --remote-debugging-port=9222, log in to N4 "
-            "and open the Add Appointment screen first.\n%s",
-            cfg.debug_url, e)
+            "Could not attach to Chrome on %s.\n"
+            "Either start a debug Chrome and log in to N4 by hand, or save "
+            "your N4 username/password in config.json for auto-login.\n%s",
+            debug_url, e)
         return 1
 
     notifier = Notifier(cfg)

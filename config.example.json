@@ -1,10 +1,23 @@
 {
   "_comment": "Copy to config.json and edit. NEVER commit config.json.",
   "url": "https://n4dgt.ictsi.net/apex/n4.zul",
+  "username": "",
+  "password": "",
+  "auto_launch": true,
+  "chrome_path": "",
+  "user_data_dir": "",
   "tower": "109",
-  "tower_order": ["109", "202", "203", "205"],
+  "tower_order": [
+    "109",
+    "202",
+    "203",
+    "205"
+  ],
   "transaction_type": "Pick Up Import",
-  "transaction_types": ["Pick Up Import", "Drop Off Export"],
+  "transaction_types": [
+    "Pick Up Import",
+    "Drop Off Export"
+  ],
   "trucking_company": "AVEMEL",
   "date_format": "%Y-%m-%d",
   "days_ahead": 0,
@@ -12,7 +25,12 @@
   "max_hours": 6,
   "refresh_wait_ms": 700,
   "debug_url": "http://localhost:9222",
-  "debug_ports": { "109": 9222, "202": 9223, "203": 9224, "205": 9225 },
+  "debug_ports": {
+    "109": 9222,
+    "202": 9223,
+    "203": 9224,
+    "205": 9225
+  },
   "gate_labels": {
     "109": "109 (ITZ 109)",
     "202": "202 (ITZ 202)",

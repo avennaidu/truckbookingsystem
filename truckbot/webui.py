@@ -65,13 +65,15 @@ class Runner:
         from .session import N4Session
         session = N4Session(self.cfg, debug_url=self.debug_url)
         try:
-            session.connect()
+            # attach, or auto-launch Chrome + log in when credentials saved
+            self._emit("connecting", detail=self.debug_url)
+            session.attach_or_launch()
         except Exception as e:
             self.state = "fatal"
             self._emit("fatal", detail=(
                 f"Could not attach to Chrome at {self.debug_url}: {e}. "
-                f"Start that Chrome in debug mode, log in to N4, open the "
-                f"appointment screen, then Start again."))
+                f"Save your N4 login under Settings for auto-start, or "
+                f"start that Chrome in debug mode and log in by hand."))
             return
         try:
             self.state = "running"
@@ -210,6 +212,54 @@ class Controller:
             w.writerows(merged)
         return {"loaded": len(merged), "added": len(merged) - len(existing)}
 
+    def get_settings(self) -> dict:
+        return {"username": self.cfg.username,
+                "has_password": bool(self.cfg.password),
+                "auto_launch": self.cfg.auto_launch}
+
+    def save_settings(self, username: str, password: str) -> dict:
+        """Store N4 credentials in the LOCAL config.json (gitignored).
+        An empty password keeps the existing one."""
+        self.cfg.username = username.strip()
+        if password:
+            self.cfg.password = password
+        path = Path("config.json")
+        raw = json.loads(path.read_text()) if path.exists() else {}
+        raw["username"] = self.cfg.username
+        raw["password"] = self.cfg.password
+        path.write_text(json.dumps(raw, indent=2))
+        return self.get_settings()
+
+    def list_rows(self) -> list[dict]:
+        done = ResultsStore(self.cfg.results_file).done_set()
+        return load_containers(self.cfg.containers_file, done)
+
+    def add_container(self, container: str, tower: str) -> dict:
+        container = container.strip().upper()
+        if not container:
+            return {"error": "container is empty"}
+        if tower not in VALID_TOWERS:
+            return {"error": f"tower must be one of {sorted(VALID_TOWERS)}"}
+        path = Path(self.cfg.containers_file)
+        rows = []
+        if path.exists():
+            with open(path, newline="") as f:
+                rows = [(r["container"], r.get("tower", ""))
+                        for r in csv.DictReader(f)]
+        if any(c == container for c, _ in rows):
+            return {"error": f"{container} is already on the list"}
+        rows.append((container, tower))     # FIFO: new arrivals at the end
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["container", "tower"])
+            w.writerows(rows)
+        return {"ok": True}
+
+    def remove_from_list(self, container: str) -> dict:
+        from .containers import remove_container
+        ok = remove_container(self.cfg.containers_file, container)
+        return {"ok": ok}
+
     def make_list(self, report_text: str, tower: str) -> dict:
         if tower not in VALID_TOWERS:
             return {"error": f"tower must be one of {sorted(VALID_TOWERS)}"}
@@ -254,7 +304,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/containers":
             path = Path(self.controller.cfg.containers_file)
             text = path.read_text() if path.exists() else "container,tower\n"
-            self._json({"csv": text})
+            self._json({"csv": text, "rows": self.controller.list_rows()})
+        elif self.path == "/api/settings":
+            self._json(self.controller.get_settings())
         else:
             self._json({"error": "not found"}, 404)
 
@@ -272,6 +324,14 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/containers":
             self._json(c.set_containers(data.get("csv", ""),
                                         data.get("mode", "replace")))
+        elif self.path == "/api/settings":
+            self._json(c.save_settings(data.get("username", ""),
+                                       data.get("password", "")))
+        elif self.path == "/api/containers/add":
+            self._json(c.add_container(data.get("container", ""),
+                                       str(data.get("tower", ""))))
+        elif self.path == "/api/containers/remove":
+            self._json(c.remove_from_list(data.get("container", "")))
         elif self.path == "/api/makelist":
             self._json(c.make_list(data.get("report", ""),
                                    str(data.get("tower", ""))))
@@ -326,7 +386,7 @@ PAGE = r"""<!doctype html>
   .mini    { padding:3px 10px; font-size:12.5px; border-radius:6px; }
   button:disabled { opacity:.45; cursor:default; }
   label { display:block; margin:8px 0 3px; color:var(--mut); font-size:13px; }
-  select,textarea,input[type=text] { width:100%; font:inherit;
+  select,textarea,input[type=text],input[type=password] { width:100%; font:inherit;
       border:1px solid #cdd4dd; border-radius:7px; padding:7px; }
   textarea { font-family:ui-monospace,Consolas,monospace; font-size:13px; }
   table { border-collapse:collapse; width:100%; font-size:13.5px; }
@@ -363,6 +423,23 @@ PAGE = r"""<!doctype html>
 <main>
   <section>
     <div class="card">
+      <h2>N4 login (auto-start)</h2>
+      <div class="row">
+        <div style="flex:1"><label>Username</label>
+          <input type="text" id="user" placeholder="TRK-..."></div>
+        <div style="flex:1"><label>Password</label>
+          <input type="password" id="pass" placeholder="unchanged"></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="ghost" id="saveCreds">Save login</button>
+        <span class="help" id="credState"></span>
+      </div>
+      <div class="help" style="margin-top:6px">Stays in
+        <code>config.json</code> on this PC only. With a saved login the
+        bot opens Chrome and logs in to N4 by itself when you press
+        Start.</div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <h2>Bots</h2>
       <label>Transaction type</label>
       <select id="txn">
@@ -399,6 +476,19 @@ PAGE = r"""<!doctype html>
     <div class="card" style="margin-top:16px">
       <h2>Container list (top = booked first)</h2>
       <div id="pending"></div>
+      <div style="max-height:220px;overflow-y:auto;margin:8px 0">
+        <table><thead><tr><th>#</th><th>Container</th><th>Tower</th>
+          <th></th></tr></thead><tbody id="listRows"></tbody></table>
+      </div>
+      <div class="row">
+        <input type="text" id="newCont" placeholder="Container e.g. PCIU9529335"
+               style="flex:1;text-transform:uppercase">
+        <select id="newTower" style="width:80px">
+          <option>109</option><option>202</option>
+          <option>203</option><option>205</option>
+        </select>
+        <button class="ghost" id="addCont">Add</button>
+      </div>
       <label>Paste list (<code>CONTAINER,TOWER</code> per line, FIFO order)</label>
       <textarea id="csv" rows="7" placeholder="PCIU9529335,109&#10;MSDU4523340,203"></textarea>
       <div class="row" style="margin-top:8px">
@@ -471,6 +561,43 @@ function renderTowers(s) {
     $('stop' + t).style.display = (b && b.alive) ? '' : 'none';
   });
 }
+
+async function loadSettings() {
+  const st = await api('/api/settings');
+  $('user').value = st.username || '';
+  $('credState').textContent = st.has_password
+    ? 'login saved - auto-start is on' : 'no login saved (attach by hand)';
+}
+$('saveCreds').onclick = async () => {
+  await api('/api/settings',
+    {username: $('user').value, password: $('pass').value});
+  $('pass').value = '';
+  loadSettings();
+};
+loadSettings();
+
+async function refreshList() {
+  const r = await api('/api/containers');
+  $('listRows').innerHTML = (r.rows || []).map((x, i) =>
+    `<tr><td>${i + 1}</td><td>${esc(x.container)}</td>` +
+    `<td>${esc(x.tower)}</td><td><button class="mini ghost" ` +
+    `onclick="removeCont('${esc(x.container)}')">remove</button></td></tr>`
+  ).join('') || '<tr><td colspan="4" class="help">List is empty.</td></tr>';
+}
+window.removeCont = async c => {
+  if (!confirm(`Remove ${c} from the list?`)) return;
+  await api('/api/containers/remove', {container: c});
+  refreshList(); refresh();
+};
+$('addCont').onclick = async () => {
+  const r = await api('/api/containers/add',
+    {container: $('newCont').value, tower: $('newTower').value});
+  if (r.error) { alert(r.error); return; }
+  $('newCont').value = '';
+  refreshList(); refresh();
+};
+refreshList();
+setInterval(refreshList, 5000);
 
 $('start').onclick = async () => {
   $('msg').textContent = '';

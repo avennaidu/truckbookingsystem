@@ -27,6 +27,15 @@ class Notify:
 @dataclass
 class Config:
     url: str = "https://n4dgt.ictsi.net/apex/n4.zul"
+    # N4 credentials for auto-login (LOCAL config.json only - gitignored).
+    # Leave blank to keep pure attach mode (log in by hand).
+    username: str = ""
+    password: str = ""
+    # auto-launch of the debug Chrome when none is running; chrome_path
+    # blank = auto-detect, user_data_dir blank = per-tower default
+    auto_launch: bool = True
+    chrome_path: str = ""
+    user_data_dir: str = ""
     tower: str = "109"
     tower_order: list = field(default_factory=lambda: list(VALID_TOWERS))
     transaction_type: str = "Pick Up Import"
