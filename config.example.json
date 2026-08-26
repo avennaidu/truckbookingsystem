@@ -1,0 +1,34 @@
+{
+  "_comment": "Copy to config.json and edit. NEVER commit config.json.",
+  "url": "https://n4dgt.ictsi.net/apex/n4.zul",
+  "tower": "109",
+  "tower_order": ["109", "202", "203", "205"],
+  "transaction_type": "Pick Up Import",
+  "transaction_types": ["Pick Up Import", "Drop Off Export"],
+  "trucking_company": "AVEMEL",
+  "date_format": "%Y-%m-%d",
+  "days_ahead": 0,
+  "poll_seconds": 20,
+  "max_hours": 6,
+  "refresh_wait_ms": 700,
+  "debug_url": "http://localhost:9222",
+  "debug_ports": { "109": 9222, "202": 9223, "203": 9224, "205": 9225 },
+  "gate_labels": {
+    "109": "109 (ITZ 109)",
+    "202": "202 (ITZ 202)",
+    "203": "203 (ITZ 203 Virtual Gate)",
+    "205": "205 (ITZ 205)"
+  },
+  "containers_file": "containers_all.csv",
+  "results_file": "results.csv",
+  "errors_file": "n4_errors.csv",
+  "log_file": "bot.log",
+  "notify": {
+    "toast": true,
+    "email_to": "",
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_password": ""
+  }
+}

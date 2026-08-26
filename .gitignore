@@ -1,0 +1,11 @@
+# Live credentials & run data - NEVER commit these
+config.json
+results.csv
+bot.log
+errors.log
+n4_errors.csv
+report.txt
+*.pyc
+__pycache__/
+.pytest_cache/
+*.egg-info/
