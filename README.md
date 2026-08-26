@@ -36,6 +36,25 @@ when you pick one).
   or (default, safest) "leave as hand-set in N4". Run different bots
   for different transaction types side by side.
 
+## Deploy to the operations PC (once per PC)
+
+1. Install **Python 3.10+** from https://www.python.org/downloads/ —
+   tick **"Add python.exe to PATH"** in the installer.
+2. Make sure **Google Chrome** is installed.
+3. Get the code onto the PC (either way):
+   - no git: on GitHub open this branch → **Code → Download ZIP**,
+     extract to e.g. `C:\truckbot`
+   - with git: `git clone https://github.com/avennaidu/truckbookingsystem.git`
+4. Double-click `scripts\create_desktop_shortcuts.bat` (makes the
+   Desktop shortcuts).
+5. Double-click **Truck Booking Bot** — the first run installs the one
+   dependency and creates `config.json`; then save the N4 login on the
+   page and you're live.
+
+**Updating** a PC later: with git just `git pull`; with ZIP, extract the
+new version over the folder but keep your local `config.json`,
+`containers_all.csv` and `results.csv`.
+
 ## Setup (once)
 
 ```
