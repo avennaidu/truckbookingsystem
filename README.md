@@ -41,12 +41,18 @@ needed — the bot attaches to your normal Chrome.
 
 ## Daily use (web UI — recommended for staff)
 
-1. Double-click `scripts\start_chrome_109.bat` for each tower you want
-   to run (each opens its own Chrome).
+One-time: double-click `scripts\create_desktop_shortcuts.bat` — it puts
+a **Truck Booking Bot** shortcut plus one **N4 Chrome — Tower <n>**
+shortcut per tower on the Desktop, so nothing below needs the command
+prompt.
+
+1. Double-click **N4 Chrome — Tower <n>** for each tower you want to
+   run (each opens its own Chrome).
 2. In each Chrome: log in to N4, click **+** to open **Add
    Appointment**, hand-set **Trucking Company = AVEMEL LOG** (and the
    Transaction Type if you'll use "leave as set").
-3. Double-click `scripts\start_ui.bat` → open http://localhost:8123
+3. Double-click **Truck Booking Bot** — it installs requirements on
+   first run, starts the UI, and opens http://localhost:8123 by itself.
 4. Paste/import the container list, tick the towers, press **Start**.
 5. Watch progress; you get a desktop toast on every booking.
 

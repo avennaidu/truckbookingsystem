@@ -279,11 +279,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
 
-def serve(cfg: Config, port: int = 8123):
+def serve(cfg: Config, port: int = 8123, open_browser: bool = True):
     Handler.controller = Controller(cfg)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     log.info("Web UI on http://localhost:%d  (Ctrl+C to quit)", port)
     print(f"\n  Truck Booking Bot UI ->  http://localhost:{port}\n")
+    if open_browser:    # the server socket is already bound at this point
+        try:
+            import webbrowser
+            webbrowser.open(f"http://localhost:{port}")
+        except Exception:
+            pass
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
