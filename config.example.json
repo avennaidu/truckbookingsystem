@@ -18,12 +18,12 @@
     "Pick Up Import",
     "Drop Off Export"
   ],
-  "trucking_company": "AVEMEL",
+  "trucking_company": "AVEMEL LOG",
   "date_format": "%Y-%m-%d",
   "days_ahead": 0,
-  "poll_seconds": 20,
+  "poll_seconds": 8,
   "max_hours": 6,
-  "refresh_wait_ms": 700,
+  "refresh_wait_ms": 450,
   "debug_url": "http://localhost:9222",
   "debug_ports": {
     "109": 9222,
@@ -48,5 +48,13 @@
     "smtp_port": 587,
     "smtp_user": "",
     "smtp_password": ""
-  }
+  },
+  "fast_retries": 3,
+  "validate_wait_ms": 900,
+  "openings_wait_ms": 450,
+  "save_wait_ms": 1500,
+  "combo_open_ms": 350,
+  "combo_pick_ms": 250,
+  "error_wait_ms": 250,
+  "attempt_gap_ms": 250
 }

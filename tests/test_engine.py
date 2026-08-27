@@ -25,6 +25,7 @@ class FakeDialog:
         self.container = None
         self._present = True
         self.saves = []
+        self.refreshes = 0
 
     def _s(self):
         return self.script.get(self.container, {})
@@ -49,6 +50,9 @@ class FakeDialog:
     def close_openings(self):
         pass
 
+    def refresh_openings(self, date_str, other_str):
+        self.refreshes += 1
+
     def save(self):
         self.saves.append(self.container)
         err = self._s().get("save_error")
@@ -67,10 +71,14 @@ class FakeSession:
         self._dialog = dialog
         self.opened = []            # (container-agnostic) tower sequence
         self.reconnects = 0
+        self.transaction_type = None
+        self.trucking_company = None
 
-    def open_dialog(self, tower, transaction_type=None):
+    def open_dialog(self, tower, transaction_type=None,
+                    trucking_company=None):
         self.opened.append(tower)
         self.transaction_type = transaction_type
+        self.trucking_company = trucking_company
         return self._dialog
 
     def reconnect(self):
@@ -78,6 +86,7 @@ class FakeSession:
         return True
 
 
+ONE_CONTAINER = "container,tower" + chr(10) + "AAAA1111111,109" + chr(10)
 SLOT = "17:00-17:59 (Current Openings: 7)"
 NO_SLOT = "09:00-09:59 (Current Openings: 0)"
 
@@ -231,11 +240,13 @@ def test_exception_triggers_reconnect(tmp_path):
             super().__init__(dialog)
             self.boomed = False
 
-        def open_dialog(self, tower, transaction_type=None):
+        def open_dialog(self, tower, transaction_type=None,
+                        trucking_company=None):
             if not self.boomed:
                 self.boomed = True
                 raise RuntimeError("tab crashed")
-            return super().open_dialog(tower, transaction_type)
+            return super().open_dialog(tower, transaction_type,
+                                       trucking_company)
 
     cfg = Config(containers_file=str(tmp_path / "c.csv"),
                  results_file=str(tmp_path / "r.csv"),
@@ -304,3 +315,57 @@ def test_fifo_first_in_list_attempted_first(tmp_path):
     eng.run(mode="single", tower="109")
     assert order[0] == "FRSTU111111"
     assert order[:2] == ["FRSTU111111", "SCNDU222222"]
+
+
+def test_trucking_company_passed_to_dialog(tmp_path):
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"no_openings_popup": True}},
+        ONE_CONTAINER)
+    eng.run(mode="all", trucking_company="AVEMEL LOG")
+    assert session.trucking_company == "AVEMEL LOG"
+
+
+def test_default_leaves_trucking_company_alone(tmp_path):
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"no_openings_popup": True}},
+        ONE_CONTAINER)
+    eng.run(mode="all")
+    assert session.trucking_company is None
+
+
+def test_unsettable_field_never_books(tmp_path):
+    # A slot taken under the wrong trucking company is worse than a
+    # slot missed: the attempt must stop before Save and stay pending.
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"openings": [SLOT], "book_ok": True}},
+        ONE_CONTAINER)
+    dlg.setup_errors = ["Trucking Company = 'AVEMEL LOG'"]
+    status, detail = eng.attempt("AAAA1111111", "109")
+    assert status == "RETRY"
+    assert "Trucking Company" in detail
+    assert dlg.saves == []          # never reached Save
+
+
+def test_openings_rechecked_without_rebuilding_the_dialog(tmp_path):
+    # Slots vanish in seconds, so one look per pass is not enough: the
+    # attempt re-pokes the date while the form is still open.
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"no_openings_popup": True}},
+        ONE_CONTAINER, fast_retries=4)
+    eng.attempt("AAAA1111111", "109")
+    assert dlg.refreshes == 3        # 4 looks, 3 refreshes between them
+    assert session.opened == ['109']  # dialog built once, not four times
+
+
+def test_slot_appearing_on_a_later_recheck_is_booked(tmp_path):
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"openings": [], "book_ok": True}},
+        ONE_CONTAINER, fast_retries=3)
+
+    # nothing on the first two looks, a slot on the third
+    def openings_later():
+        return [SLOT] if dlg.refreshes >= 2 else []
+    dlg.openings = openings_later
+    status, detail = eng.attempt("AAAA1111111", "109")
+    assert status == "BOOKED"
+    assert "17:00-17:59" in detail

@@ -43,7 +43,15 @@ def cmd_run(cfg, args):
         debug_url = cfg.debug_url_for(tower)   # per-tower Chrome session
     else:
         debug_url = cfg.debug_url
-    session = N4Session(cfg, debug_url=debug_url)
+    # blank (-t "" / --trucking-company "") = leave that field as hand-set
+    transaction = (args.transaction if args.transaction is not None
+                   else cfg.transaction_type)
+    transaction = (transaction or "").strip() or None
+    trucking = (args.trucking_company if args.trucking_company is not None
+                else cfg.trucking_company)
+    trucking = (trucking or "").strip() or None
+
+    session = N4Session(cfg, debug_url=debug_url, tower=tower)
     log = logging.getLogger("truckbot")
     try:
         # attaches to a running debug Chrome, or (with saved credentials)
@@ -61,12 +69,13 @@ def cmd_run(cfg, args):
     engine = Engine(cfg, session, on_event=notifier)
     log.info("Attached %s (%s) | %s | %s | v%s", debug_url,
              f"tower {tower}" if tower else "all towers",
-             cfg.trucking_company,
-             args.transaction or "transaction type as set in N4",
+             trucking or "trucking company as set in N4",
+             transaction or "transaction type as set in N4",
              __version__)
     try:
         engine.run(mode=mode, tower=tower,
-                   transaction_type=args.transaction)
+                   transaction_type=transaction,
+                   trucking_company=trucking)
     except KeyboardInterrupt:
         log.info("Interrupted. Summary: %s", engine.results.summary())
     finally:
@@ -127,7 +136,13 @@ def main(argv=None):
                    help="rotate all towers (default)")
     p.add_argument("--transaction", "-t", default=None,
                    help="set Transaction Type (e.g. 'Pick Up Import', "
-                        "'Drop Off Export'); default: leave as hand-set "
+                        "'Drop Off Export'); default: config "
+                        "transaction_type. Pass -t \"\" to leave it as "
+                        "hand-set in N4")
+    p.add_argument("--trucking-company", default=None,
+                   help="set Trucking Company (e.g. 'AVEMEL LOG'); "
+                        "default: config trucking_company. Pass "
+                        "--trucking-company \"\" to leave it as hand-set "
                         "in N4")
     p.add_argument("--debug-port", type=int, default=None,
                    help="Chrome debug port to attach to (default: the "

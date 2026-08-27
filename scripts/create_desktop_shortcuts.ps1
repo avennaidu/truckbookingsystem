@@ -22,11 +22,21 @@ function Make-Shortcut($name, $target, $icon) {
 Make-Shortcut "Truck Booking Bot" (Join-Path $here "launch_bot.bat") `
     $(if (Test-Path $chrome) { "$chrome,0" } else { $null })
 
-# one debug Chrome per tower (log in to N4 in each before starting bots)
+# one bot per tower - each opens its own Chrome, logs in to N4 and books
+# that tower (needs the N4 login saved in the bot first)
+foreach ($t in "109", "202", "203", "205") {
+    Make-Shortcut "Truck Bot - Tower $t" (Join-Path $here "run_bot_$t.bat") `
+        $(if (Test-Path $chrome) { "$chrome,0" } else { $null })
+}
+
+# one debug Chrome per tower - only needed when NO login is saved and you
+# want to log in to N4 by hand
 foreach ($t in "109", "202", "203", "205") {
     Make-Shortcut "N4 Chrome - Tower $t" (Join-Path $here "start_chrome_$t.bat") `
         $(if (Test-Path $chrome) { "$chrome,0" } else { $null })
 }
 Write-Host ""
-Write-Host "Done. Daily use: open the tower Chromes you need, log in to N4,"
-Write-Host "then double-click 'Truck Booking Bot' and press Start on the page."
+Write-Host "Done. With your N4 login saved in the bot, daily use is either:"
+Write-Host "  - 'Truck Booking Bot' -> tick the towers -> Start, or"
+Write-Host "  - double-click 'Truck Bot - Tower <n>' for just that tower."
+Write-Host "The 'N4 Chrome' shortcuts are only for logging in by hand."

@@ -50,8 +50,9 @@ class Engine:
         self.stop_event = stop_event or threading.Event()
         self.sleep = sleeper
         self._unknown_counts: dict[str, int] = {}
-        # None = leave Transaction Type exactly as hand-set in N4
+        # None = leave that field exactly as hand-set in N4
         self.transaction_type: str | None = None
+        self.trucking_company: str | None = None
 
     # --- events -----------------------------------------------------------
     def emit(self, kind, **data):
@@ -76,7 +77,17 @@ class Engine:
         """Try to book `container` on `tower` once.
         Returns (BOOKED|SKIPPED|RETRY|BROKEN, detail)."""
         dlg = self.session.open_dialog(
-            tower, transaction_type=self.transaction_type)
+            tower, transaction_type=self.transaction_type,
+            trucking_company=self.trucking_company)
+
+        # A field that would not take (wrong gate, wrong trucking company)
+        # must never reach Save - retry next pass instead of booking a slot
+        # under the wrong settings.
+        unset = getattr(dlg, "setup_errors", None)
+        if unset:
+            return "RETRY", ("could not set " + "; ".join(unset)
+                             + " - set it by hand in N4, or clear it in "
+                               "config.json to leave it alone")
 
         err = dlg.enter_container(container)
         if err is not None:
@@ -87,45 +98,66 @@ class Engine:
             return ("SKIPPED", reason) if kind == SKIP else ("RETRY", reason)
 
         days = max(0, int(self.cfg.days_ahead))
+        probes = max(1, int(self.cfg.fast_retries))
         for offset in range(days + 1):
             if self.stop_event.is_set():
                 return "RETRY", "stopped"
             day = date.today() + timedelta(days=offset)
-            dlg.set_date(day.strftime(self.cfg.date_format))
+            day_str = day.strftime(self.cfg.date_format)
+            # the date a refresh bounces through; never booked on
+            bounce_str = (day + timedelta(days=1)).strftime(
+                self.cfg.date_format)
+            dlg.set_date(day_str)
 
-            if dlg.dismiss("No Appointment Openings"):
-                continue    # normal between-release state; try next day
+            # Openings vanish within seconds of a release, and rebuilding
+            # the dialog costs seconds - so look again several times while
+            # this form is still open and warm before moving on.
+            for probe in range(probes):
+                if self.stop_event.is_set():
+                    return "RETRY", "stopped"
 
-            choice = pick_opening(dlg.openings())
-            if choice is None:
-                dlg.close_openings()
-                continue
-            click_text, full_text = choice
-            dlg.click_opening(click_text)
+                if dlg.dismiss("No Appointment Openings"):
+                    choice = None           # normal between-release state
+                else:
+                    choice = pick_opening(dlg.openings())
+                    if choice is None:
+                        dlg.close_openings()
 
-            err = dlg.save()
-            if err is not None:
-                kind, reason = self._handle_error_text(container, "save", err)
-                status = "SKIPPED" if kind == SKIP else "RETRY"
-                return status, f"{reason} ({full_text})"
-            if not dlg.present():
-                return "BOOKED", f"{day} {full_text} (tower {tower})"
-            return "BROKEN", f"no confirmation ({full_text})"
+                if choice is None:
+                    if probe + 1 < probes:
+                        dlg.refresh_openings(day_str, bounce_str)
+                    continue
+
+                click_text, full_text = choice
+                dlg.click_opening(click_text)
+
+                err = dlg.save()
+                if err is not None:
+                    kind, reason = self._handle_error_text(
+                        container, "save", err)
+                    status = "SKIPPED" if kind == SKIP else "RETRY"
+                    return status, f"{reason} ({full_text})"
+                if not dlg.present():
+                    return "BOOKED", f"{day} {full_text} (tower {tower})"
+                return "BROKEN", f"no confirmation ({full_text})"
 
         return "RETRY", "no openings"
 
     # --- the run loop -------------------------------------------------------
     def run(self, mode: str = "all", tower: str | None = None,
-            transaction_type: str | None = None):
+            transaction_type: str | None = None,
+            trucking_company: str | None = None):
         """Loop passes until list done, deadline hit, or stop requested."""
         self.transaction_type = transaction_type
+        self.trucking_company = trucking_company
         cfg = self.cfg
         deadline = time.time() + float(cfg.max_hours) * 3600
         cycle = 0
         only = tower if mode == "single" else None
 
         self.emit("started", mode=mode, tower=tower,
-                  transaction=transaction_type or "as set in N4")
+                  transaction=transaction_type or "as set in N4",
+                  trucking=trucking_company or "as set in N4")
         while not self.stop_event.is_set() and time.time() < deadline:
             pending = load_containers(cfg.containers_file,
                                       self.results.done_set(), only)
@@ -159,7 +191,8 @@ class Engine:
                     if self.stop_event.is_set() or time.time() >= deadline:
                         break
                     self._attempt_and_record(container, t)
-                    self.sleep(random.uniform(0.4, 1.2))
+                    gap = max(0.0, int(self.cfg.attempt_gap_ms) / 1000.0)
+                    self.sleep(gap + random.uniform(0, gap))
 
             if self.stop_event.is_set() or time.time() >= deadline:
                 break

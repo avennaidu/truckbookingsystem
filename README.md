@@ -15,9 +15,11 @@ list is booked.
 - **Attach mode:** leave the login blank and log in by hand in a debug
   Chrome; the bot attaches to it and only does the repetitive part.
 
-Either way the bot never touches Trucking Company or Line Operator —
-set those by hand in the dialog (and it only touches Transaction Type
-when you pick one).
+Every bot sets its own Gate/Zone, **Transaction Type** and **Trucking
+Company** from `config.json` (defaults: `Pick Up Import`, `AVEMEL LOG`),
+so a freshly opened form needs no clicks. Line Operator is never
+touched. Blank either value in `config.json` to leave that field exactly
+as hand-set in N4 instead.
 
 ## Key rules built in
 
@@ -27,8 +29,14 @@ when you pick one).
   `containers_all.csv` immediately; `results.csv` keeps the permanent
   record (and makes restarts resume cleanly).
 - **One bot per tower** — concurrent N4 logins are allowed, so the
-  fastest setup is a separate bot per tower, each attached to its own
-  Chrome (ports: 109→9222, 202→9223, 203→9224, 205→9225).
+  fastest setup is a separate bot per tower, each on its own Chrome
+  (ports: 109→9222, 202→9223, 203→9224, 205→9225) and its own profile
+  (`C:
+avis-chrome-<tower>`). Either tick the towers in the UI and
+  press Start, or double-click **Truck Bot — Tower &lt;n&gt;**.
+- **Never book under the wrong settings** — if Gate/Zone, Transaction
+  Type or Trucking Company will not take, the bot refuses to Save and
+  retries instead: a slot on the wrong gate is worse than no slot.
 - **Exact gate matching** — the Gate/Zone dropdown has near-duplicates
   (`109 REEFER`, `109A`…), so towers match the exact label, including
   `203 (ITZ 203 Virtual Gate)` which is worded differently.
@@ -86,12 +94,34 @@ prompt.
 No saved login? Use the **N4 Chrome — Tower <n>** shortcuts, log in by
 hand in each, open the **+** Add Appointment screen, then press Start.
 
+## Speed (slots go in seconds)
+
+Openings can be gone within seconds of a release, so the bot is built to
+stay warm rather than rebuild:
+
+- The **Add Appointment form is reused** between containers. Clicking
+  `+` spawns a new browser tab and costs seconds per container; reusing
+  the open form removes that from every attempt.
+- Each attempt **re-checks the openings list `fast_retries` times**
+  (default 3) by bouncing the Requested Date and reading again — about
+  1s per look, versus seconds to rebuild the dialog.
+- Every fixed wait is a config dial (`refresh_wait_ms`,
+  `validate_wait_ms`, `openings_wait_ms`, `save_wait_ms`,
+  `combo_open_ms`, `combo_pick_ms`, `error_wait_ms`, `attempt_gap_ms`),
+  and `poll_seconds` (default 8) is the pause between passes.
+
+Tuning: lower is faster but reads a half-updated ZK form more often. If
+bookings start coming back `BROKEN (no confirmation)`, raise
+`save_wait_ms` first, then `openings_wait_ms`. Note the caution below —
+faster polling is also more load on the terminal's system.
+
 ## Command line
 
 ```
 python -m truckbot run --tower 109                  # camp on one tower
 python -m truckbot run --all                        # one session rotating towers
 python -m truckbot run --tower 202 -t "Drop Off Export"
+python -m truckbot run --tower 109 -t "" --trucking-company ""   # leave both as hand-set
 python -m truckbot run --tower 109 --debug-port 9230
 python -m truckbot make-list report.txt 109         # filter an N4 report in
 python -m truckbot status                           # summary + last results
@@ -139,9 +169,10 @@ automatically and explains every exclusion.
 
 ## Cautions
 
-- Automated booking may breach the terminal's terms of use; keep
-  `poll_seconds` reasonable (20s+ between passes is jittered on top) —
-  accounts can be suspended. It's worth asking ICTSI about official
+- Automated booking may breach the terminal's terms of use, and the
+  speed settings above make the bot noticeably busier than a person.
+  `poll_seconds` defaults to 8 with jitter on top; raise it if ICTSI
+  ever objects — accounts can be suspended. It's worth asking ICTSI about official
   API/EDI access; N4 supports web-services integration.
 - Container numbers transcribed from photos are OCR-risky — prefer
   exact text from PDF/CSV exports or the report importer.

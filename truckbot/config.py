@@ -38,17 +38,37 @@ class Config:
     user_data_dir: str = ""
     tower: str = "109"
     tower_order: list = field(default_factory=lambda: list(VALID_TOWERS))
+    # the type every bot books under unless the run overrides it; blank
+    # = leave the Transaction Type combobox exactly as hand-set in N4
     transaction_type: str = "Pick Up Import"
-    # choices offered by the UI; None/blank at run time = leave the
-    # Transaction Type combobox exactly as hand-set in N4
+    # choices offered by the UI
     transaction_types: list = field(default_factory=lambda: [
         "Pick Up Import", "Drop Off Export"])
-    trucking_company: str = "AVEMEL"
+    # set on every booking (exact or leading part of the N4 option label);
+    # blank = leave Trucking Company exactly as hand-set in N4
+    trucking_company: str = "AVEMEL LOG"
     date_format: str = "%Y-%m-%d"
     days_ahead: int = 0                # also try today+1..+N when today has nothing
-    poll_seconds: int = 20             # pause between passes (keep polite)
+    poll_seconds: int = 8              # pause between passes (keep polite)
     max_hours: float = 6.0
-    refresh_wait_ms: int = 700         # server wait after date poke; lower = faster but stale-risk
+
+    # --- speed dials -----------------------------------------------------
+    # Slots can be gone within seconds, so an attempt does not give up
+    # after one look: it re-pokes the date and re-reads the openings list
+    # `fast_retries` times while the form is still warm. That is far
+    # cheaper than rebuilding the dialog, which costs seconds.
+    # Every wait below is the pause AFTER an action, in milliseconds.
+    # Lower = faster but more chance of reading a half-updated ZK form;
+    # raise any of them again if bookings start coming back "BROKEN".
+    fast_retries: int = 3              # openings re-checks per container per pass
+    refresh_wait_ms: int = 450         # server wait after a date poke
+    validate_wait_ms: int = 900        # container entry -> BL auto-populate
+    openings_wait_ms: int = 450        # openings dropdown render
+    save_wait_ms: int = 1500           # Save -> confirmation or error dialog
+    combo_open_ms: int = 350           # combobox popup render
+    combo_pick_ms: int = 250           # combobox selection settle
+    error_wait_ms: int = 250           # error dialog dismissal settle
+    attempt_gap_ms: int = 250          # pause between containers
     debug_url: str = "http://localhost:9222"
     # one Chrome debug session per tower (concurrent logins are allowed,
     # so the fastest setup is a separate bot per tower)

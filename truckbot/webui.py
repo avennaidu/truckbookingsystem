@@ -38,12 +38,14 @@ class Runner:
 
     def __init__(self, key: str, cfg: Config, mode: str, tower: str | None,
                  transaction: str | None, debug_url: str,
-                 results: ResultsStore, errors: ErrorCapture, on_event):
+                 results: ResultsStore, errors: ErrorCapture, on_event,
+                 trucking: str | None = None):
         self.key = key
         self.cfg = cfg
         self.mode = mode
         self.tower = tower
         self.transaction = transaction
+        self.trucking = trucking
         self.debug_url = debug_url
         self.results = results
         self.errors = errors
@@ -63,7 +65,8 @@ class Runner:
     def _run(self):
         # Playwright sync API must be created inside this thread.
         from .session import N4Session
-        session = N4Session(self.cfg, debug_url=self.debug_url)
+        session = N4Session(self.cfg, debug_url=self.debug_url,
+                            tower=self.tower)
         try:
             # attach, or auto-launch Chrome + log in when credentials saved
             self._emit("connecting", detail=self.debug_url)
@@ -81,7 +84,8 @@ class Runner:
                             errors=self.errors, on_event=self._emit,
                             stop_event=self.stop_event)
             engine.run(mode=self.mode, tower=self.tower,
-                       transaction_type=self.transaction)
+                       transaction_type=self.transaction,
+                       trucking_company=self.trucking)
             self.state = "stopped"
         except Exception as e:
             log.exception("engine %s crashed", self.key)
@@ -115,7 +119,10 @@ class Controller:
     def start(self, towers: list[str], parallel: bool,
               transaction: str | None) -> str | None:
         towers = [t for t in towers if t in VALID_TOWERS]
+        # the page pre-selects config's transaction_type; an empty value is
+        # a deliberate "leave it as hand-set in N4" and is honoured as such
         transaction = (transaction or "").strip() or None
+        trucking = (self.cfg.trucking_company or "").strip() or None
         with self._lock:
             self._reap()
             if parallel:
@@ -128,7 +135,8 @@ class Controller:
                     self.runners[t] = Runner(
                         t, self.cfg, "single", t, transaction,
                         self.cfg.debug_url_for(t),
-                        self.results, self.errors, self.on_event)
+                        self.results, self.errors, self.on_event,
+                        trucking=trucking)
                     started.append(t)
                 if not started:
                     return "those towers are already running"
@@ -138,7 +146,8 @@ class Controller:
                 return "already running"
             self.runners["all"] = Runner(
                 "all", self.cfg, "all", None, transaction,
-                self.cfg.debug_url, self.results, self.errors, self.on_event)
+                self.cfg.debug_url, self.results, self.errors, self.on_event,
+                trucking=trucking)
             return None
 
     def stop(self, key: str | None = None):
@@ -166,6 +175,7 @@ class Controller:
                        "alive": r.alive(),
                        "tower": r.tower, "mode": r.mode,
                        "transaction": r.transaction or "as set in N4",
+                       "trucking": r.trucking or "as set in N4",
                        "debug_url": r.debug_url}
         return {
             "version": __version__,
@@ -175,6 +185,8 @@ class Controller:
             "debug_ports": {t: self.cfg.debug_ports.get(t)
                             for t in VALID_TOWERS},
             "transaction_types": self.cfg.transaction_types,
+            "transaction_default": self.cfg.transaction_type or "",
+            "trucking_company": self.cfg.trucking_company or "",
             "pending_by_tower": {
                 t: len(cs) for t, cs in
                 group_by_tower(pending, self.cfg.tower_order).items()},
@@ -443,8 +455,9 @@ PAGE = r"""<!doctype html>
       <h2>Bots</h2>
       <label>Transaction type</label>
       <select id="txn">
-        <option value="">Leave as set in N4 (safest)</option>
+        <option value="">Leave as set in N4</option>
       </select>
+      <div class="help" id="truckState" style="margin-top:6px"></div>
       <label>Mode</label>
       <select id="mode">
         <option value="parallel">One bot per tower (parallel &mdash; fastest)</option>
@@ -459,17 +472,20 @@ PAGE = r"""<!doctype html>
       <details>
         <summary>Before you press Start (per tower)</summary>
         <div class="help">
-          <p>Each tower's bot attaches to its OWN Chrome. Start one debug
-          Chrome per tower you want to run (ports next to the tickboxes):</p>
+          <p><b>With the N4 login saved above you need do nothing here</b> -
+          each tower's bot opens its own Chrome, logs in, and sets Gate/Zone,
+          Transaction Type and Trucking Company by itself.</p>
+          <p>No saved login? Then start one debug Chrome per tower yourself
+          (ports are next to the tickboxes) and log in to N4 in each:</p>
           <p><code>"C:\Program Files\Google\Chrome\Application\chrome.exe"
              --remote-debugging-port=9222
              --user-data-dir="C:\navis-chrome-109"</code></p>
           <p>(or just double-click the <b>start_chrome_&lt;tower&gt;.bat</b>
-          files in the bot folder)</p>
-          <p>In each Chrome: log in to N4, click <b>+</b> to open
-          <b>Add Appointment</b>, and hand-set <b>Trucking Company =
-          AVEMEL LOG</b> (and the Transaction Type, if you chose "leave as
-          set"). Then press Start here.</p>
+          files in the bot folder), then press Start here.</p>
+          <p>A bot refuses to book while it cannot set a field - if
+          Trucking Company or Gate/Zone will not take, it says so in the
+          activity log and keeps retrying rather than booking a slot under
+          the wrong settings.</p>
         </div>
       </details>
     </div>
@@ -551,6 +567,12 @@ function renderTowers(s) {
       const o = document.createElement('option');
       o.value = x; o.textContent = x; sel.appendChild(o);
     });
+    // config's transaction_type is what every bot books under by default
+    sel.value = s.transaction_default || '';
+    $('truckState').innerHTML = s.trucking_company
+      ? `Trucking company: <b>${esc(s.trucking_company)}</b> (set on every `
+        + `booking; change it in <code>config.json</code>)`
+      : 'Trucking company: left exactly as hand-set in N4.';
     towersInit = true;
   }
   s.towers.forEach(t => {

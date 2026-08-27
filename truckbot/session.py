@@ -67,9 +67,14 @@ def cdp_alive(debug_url: str) -> bool:
 
 
 class N4Session:
-    def __init__(self, cfg, debug_url: str | None = None):
+    def __init__(self, cfg, debug_url: str | None = None,
+                 tower: str | None = None):
         self.cfg = cfg
         self.debug_url = debug_url or cfg.debug_url
+        # which tower this session serves; also names the Chrome profile so
+        # an auto-launched Chrome reuses the SAME profile as that tower's
+        # start_chrome_<tower>.bat shortcut instead of a second one
+        self.tower = str(tower) if tower else None
         self._pw = None
         self.browser = None
         self.page = None
@@ -95,7 +100,13 @@ class N4Session:
         self._pw = self.browser = self.page = None
 
     def reconnect(self, attempts: int = 5) -> bool:
-        """Re-attach with exponential backoff. True on success."""
+        """Re-attach with exponential backoff. True on success.
+
+        Uses the same attach-or-launch path as startup, so a Chrome that
+        was closed (or crashed) mid-run is started again and logged back
+        in - previously this only ever re-attached, so losing Chrome
+        ended the run even with credentials saved.
+        """
         for i in range(attempts):
             wait = min(2 ** i, 30)
             log.warning("Session lost - reconnect attempt %d/%d in %ds",
@@ -108,7 +119,7 @@ class N4Session:
                 except Exception:
                     pass
                 self._pw = None
-                self.connect()
+                self.attach_or_launch()
                 log.info("Reconnected to Chrome / N4 tab.")
                 return True
             except Exception as e:
@@ -145,11 +156,12 @@ class N4Session:
             log.error("Chrome not found - set chrome_path in config.json")
             return False
         port = self._port()
+        name = self.tower or port
         base = self.cfg.user_data_dir or (
-            os.path.join("C:\\", f"navis-chrome-{port}")
+            os.path.join("C:\\", f"navis-chrome-{name}")
             if platform.system() == "Windows"
-            else os.path.expanduser(f"~/.navis-chrome-{port}"))
-        log.info("Launching Chrome (port %s)...", port)
+            else os.path.expanduser(f"~/.navis-chrome-{name}"))
+        log.info("Launching Chrome (port %s, profile %s)...", port, base)
         subprocess.Popen(
             [chrome, f"--remote-debugging-port={port}",
              f"--user-data-dir={base}", "--no-first-run",
@@ -222,12 +234,39 @@ class N4Session:
     def dialog(self) -> N4Dialog:
         return N4Dialog(self.page, self.cfg)
 
+    def _apply_fields(self, dlg: N4Dialog, tower: str,
+                      transaction_type: str | None,
+                      trucking_company: str | None) -> N4Dialog:
+        """Set the run's fixed fields, recording any that would not take.
+
+        The engine refuses to book while `setup_errors` is non-empty: a
+        slot taken on the wrong gate, or under the wrong trucking company,
+        is worse than a slot missed.
+        """
+        dlg.setup_errors = []
+        if not dlg.ensure_gate(tower):
+            dlg.setup_errors.append(
+                f"Gate/Zone = '{self.cfg.gate_label(tower)}'")
+        if transaction_type and not dlg.ensure_transaction_type(
+                transaction_type):
+            dlg.setup_errors.append(f"Transaction Type = '{transaction_type}'")
+        if trucking_company and not dlg.ensure_trucking_company(
+                trucking_company):
+            dlg.setup_errors.append(
+                f"Trucking Company = '{trucking_company}'")
+        if dlg.setup_errors:
+            log.warning("Could not set %s on the Add Appointment form",
+                        "; ".join(dlg.setup_errors))
+        return dlg
+
     def open_dialog(self, tower: str,
-                    transaction_type: str | None = None) -> N4Dialog:
+                    transaction_type: str | None = None,
+                    trucking_company: str | None = None) -> N4Dialog:
         """Click the zebra '+' to open a fresh Add Appointment (new tab)
-        and set Gate/Zone for `tower` (and, when the run selected one,
-        the Transaction Type). If no '+' is visible, reuse the
-        already-open dialog and just re-assert the fields."""
+        and set the run's fixed fields: Gate/Zone for `tower`, plus the
+        Transaction Type and Trucking Company when the run specifies
+        them. If no '+' is visible, reuse the already-open dialog and
+        just re-assert the fields."""
         dlg = self.dialog()
         # N4 sometimes bounces to the login page mid-run (session expiry);
         # with saved credentials we can recover without the human.
@@ -240,13 +279,16 @@ class N4Session:
             raise
         except Exception:
             pass
+        # Reuse an Add Appointment form that is already open. Clicking '+'
+        # spawns a whole new browser tab, which costs seconds per container
+        # - far too slow when openings disappear within seconds of a
+        # release. The fields are re-asserted either way, and ensure_* is a
+        # no-op when the value is already right.
+        if dlg.present():
+            return self._apply_fields(dlg, tower, transaction_type,
+                                      trucking_company)
         plus = self.page.locator(PLUS_SELECTOR).first
         if plus.count() == 0:
-            if dlg.present():
-                dlg.ensure_gate(tower)
-                if transaction_type:
-                    dlg.ensure_transaction_type(transaction_type)
-                return dlg
             raise SessionLost(
                 "Neither the Add Appointment dialog nor the '+' button is "
                 "visible - open the appointment screen in N4 by hand.")
@@ -259,8 +301,5 @@ class N4Session:
         except PWTimeout:
             self.page.wait_for_timeout(800)
         self.page.wait_for_selector(DIALOG_SELECTOR, timeout=15000)
-        dlg = self.dialog()
-        dlg.ensure_gate(tower)
-        if transaction_type:
-            dlg.ensure_transaction_type(transaction_type)
-        return dlg
+        return self._apply_fields(self.dialog(), tower, transaction_type,
+                                  trucking_company)
