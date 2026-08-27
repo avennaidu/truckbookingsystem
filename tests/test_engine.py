@@ -26,6 +26,7 @@ class FakeDialog:
         self._present = True
         self.saves = []
         self.refreshes = 0
+        self.popups_closed = 0
 
     def _s(self):
         return self.script.get(self.container, {})
@@ -50,8 +51,18 @@ class FakeDialog:
     def close_openings(self):
         pass
 
-    def refresh_openings(self, date_str, other_str):
+    def refresh_openings(self, date_str):
         self.refreshes += 1
+
+    def close_all_popups(self, max_rounds=8):
+        self.popups_closed += 1
+        return []
+
+    def openings_available(self):
+        return self._s().get('available')
+
+    def opening_selected(self):
+        return self._s().get('opening_selected', '15:00-15:59')
 
     def save(self):
         self.saves.append(self.container)
@@ -369,3 +380,60 @@ def test_slot_appearing_on_a_later_recheck_is_booked(tmp_path):
     status, detail = eng.attempt("AAAA1111111", "109")
     assert status == "BOOKED"
     assert "17:00-17:59" in detail
+
+
+def test_slot_taken_between_read_and_click_is_not_saved(tmp_path):
+    # N4 greys Save out until an opening is selected, so a slot that
+    # goes while we are reaching for it must not reach Save at all.
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"openings": [SLOT],
+                                   "opening_selected": ""}},
+        ONE_CONTAINER, fast_retries=2)
+    status, detail = eng.attempt("AAAA1111111", "109")
+    assert status == "RETRY"
+    assert dlg.saves == []
+
+
+def test_leftover_popups_cleared_before_touching_the_form(tmp_path):
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"no_openings_popup": True}},
+        ONE_CONTAINER)
+    eng.attempt("AAAA1111111", "109")
+    assert dlg.popups_closed >= 1
+
+
+def test_slot_without_a_count_is_still_booked(tmp_path):
+    # Operations rule: N4 only lists a slot when it can be booked, and
+    # the count is not always in the row (it can sit in the tooltip).
+    # Demanding 'Current Openings: N' left the bot idle in front of a
+    # list full of bookable slots.
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"openings": ["15:00-15:59"],
+                                   "book_ok": True}},
+        ONE_CONTAINER)
+    status, detail = eng.attempt("AAAA1111111", "109")
+    assert status == "BOOKED"
+    assert "15:00-15:59" in detail
+
+
+def test_slot_marked_full_is_skipped_for_the_next_one(tmp_path):
+    eng, session, dlg, events = make_engine(
+        tmp_path,
+        {"AAAA1111111": {"openings": [NO_SLOT, "15:00-15:59"],
+                         "book_ok": True}},
+        ONE_CONTAINER)
+    status, detail = eng.attempt("AAAA1111111", "109")
+    assert status == "BOOKED"
+    assert "15:00-15:59" in detail
+
+
+def test_empty_openings_box_is_still_read_on_the_last_look(tmp_path):
+    # The state read is only a shortcut - if it is wrong, the dropdown
+    # must still be opened before the attempt gives up.
+    eng, session, dlg, events = make_engine(
+        tmp_path, {"AAAA1111111": {"available": False,
+                                   "openings": ["15:00-15:59"],
+                                   "book_ok": True}},
+        ONE_CONTAINER, fast_retries=3)
+    status, detail = eng.attempt("AAAA1111111", "109")
+    assert status == "BOOKED"

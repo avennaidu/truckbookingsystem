@@ -83,6 +83,12 @@ class Engine:
         # A field that would not take (wrong gate, wrong trucking company)
         # must never reach Save - retry next pass instead of booking a slot
         # under the wrong settings.
+        # Clear anything left over the form before touching it: N4's modal
+        # boxes stack, and one still open makes every click land on the
+        # veil instead of the field.
+        if hasattr(dlg, "close_all_popups"):
+            dlg.close_all_popups()
+
         unset = getattr(dlg, "setup_errors", None)
         if unset:
             return "RETRY", ("could not set " + "; ".join(unset)
@@ -104,9 +110,6 @@ class Engine:
                 return "RETRY", "stopped"
             day = date.today() + timedelta(days=offset)
             day_str = day.strftime(self.cfg.date_format)
-            # the date a refresh bounces through; never booked on
-            bounce_str = (day + timedelta(days=1)).strftime(
-                self.cfg.date_format)
             dlg.set_date(day_str)
 
             # Openings vanish within seconds of a release, and rebuilding
@@ -115,6 +118,16 @@ class Engine:
             for probe in range(probes):
                 if self.stop_event.is_set():
                     return "RETRY", "stopped"
+
+                # Cheap pre-check: the openings box shows its own state
+                # (pink = nothing yet, white/grey = slots are out). Skip
+                # the dropdown read while it says nothing - but never on
+                # the last look, so a misread cannot cost a slot.
+                if (hasattr(dlg, "openings_available")
+                        and probe + 1 < probes
+                        and dlg.openings_available() is False):
+                    dlg.refresh_openings(day_str)
+                    continue
 
                 if dlg.dismiss("No Appointment Openings"):
                     choice = None           # normal between-release state
@@ -125,11 +138,20 @@ class Engine:
 
                 if choice is None:
                     if probe + 1 < probes:
-                        dlg.refresh_openings(day_str, bounce_str)
+                        dlg.refresh_openings(day_str)
                     continue
 
                 click_text, full_text = choice
                 dlg.click_opening(click_text)
+
+                # The slot can be taken between reading the list and
+                # clicking it; Save stays disabled when nothing is
+                # selected, so look again rather than pressing a dead
+                # button.
+                if hasattr(dlg, "opening_selected")                         and not dlg.opening_selected():
+                    if probe + 1 < probes:
+                        dlg.refresh_openings(day_str)
+                    continue
 
                 err = dlg.save()
                 if err is not None:

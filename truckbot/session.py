@@ -192,8 +192,15 @@ class N4Session:
         page.fill("input[type='text']", self.cfg.username)
         page.fill("input[type='password']", self.cfg.password)
         page.keyboard.press("Enter")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)
+        # NOT networkidle: N4 is a ZK app that holds a long-lived
+        # connection open, so the network is never idle and the wait just
+        # burns its timeout before failing the whole run. Wait for the
+        # app's own furniture to appear instead.
+        try:
+            page.wait_for_selector(PLUS_SELECTOR + ", " + DIALOG_SELECTOR,
+                                   timeout=20000)
+        except Exception:
+            page.wait_for_timeout(2000)
         try:
             if page.locator("input[type='password']").first.is_visible():
                 raise SessionLost("N4 login failed - check the username "
@@ -225,7 +232,7 @@ class N4Session:
                 ":text('Add Appointment'), button.zebra-open-new-tab, "
                 "input[type='password']"
             ).count() == 0:
-                self.page.goto(self.cfg.url, wait_until="networkidle")
+                self.page.goto(self.cfg.url, wait_until="domcontentloaded")
         except Exception:
             pass
         self.login_if_needed()
@@ -297,7 +304,7 @@ class N4Session:
             with ctx.expect_page(timeout=10000) as info:
                 plus.click()
             self.page = info.value
-            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_load_state("domcontentloaded")
         except PWTimeout:
             self.page.wait_for_timeout(800)
         self.page.wait_for_selector(DIALOG_SELECTOR, timeout=15000)
