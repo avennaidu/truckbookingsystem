@@ -1,0 +1,22 @@
+# The record itself and everything derived from it - NEVER commit these.
+healthvault.db
+healthvault.db-wal
+healthvault.db-shm
+*.db
+config.json
+documents/
+demo/
+exports/
+*.log
+
+# Cards and exports contain your medical history in plain text.
+emergency-card.html
+health-record.html
+*-qr.svg
+*-qr.png
+
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/

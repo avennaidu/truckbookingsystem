@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "healthvault"
+version = "0.1.0"
+description = "Local-first personal health record with emergency and practitioner QR codes"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["segno>=1.6"]
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4.0"]
+dev = ["pytest>=7.0", "opencv-python-headless>=4.8", "pypdf>=4.0"]
+
+[project.scripts]
+healthvault = "healthvault.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["healthvault*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
