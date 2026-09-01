@@ -426,3 +426,68 @@ def test_jay_writes_a_walk_in_with_several_services(shop):
     assert view["bookings"][0]["service_name"] == "Haircut + Hot Towel"
     assert view["expected"] == 130
     assert view["booked_minutes"] == 60
+
+
+# ------------------------------------------------------------- the upsell
+
+def test_the_page_is_told_what_to_offer(shop):
+    data = shop.ok("/api/addons?service=haircut")
+    assert data["discount_pct"] == 10
+    assert {o["id"] for o in data["offers"]} == {"wax-nose", "wax-ears"}
+    nose = next(o for o in data["offers"] if o["id"] == "wax-nose")
+    assert (nose["full_price"], nose["price"], nose["saving"]) == (50, 45, 5)
+    # nothing is offered that is already in the sitting
+    assert [o["id"] for o in shop.ok("/api/addons?service=haircut,wax-nose")
+            ["offers"]] == ["wax-ears"]
+
+
+def test_slots_account_for_the_extra(shop):
+    day = shop.tuesday()
+    plain = shop.ok(f"/api/slots?service=haircut&day={day}")
+    with_wax = shop.ok(f"/api/slots?service=haircut&addon=wax-nose&day={day}")
+    assert with_wax["service"]["duration_min"] == 55
+    assert with_wax["service"]["price"] == 145
+    assert with_wax["slots"][0]["end"] == "9:55 AM"
+    assert len(with_wax["slots"]) <= len(plain["slots"])
+
+
+def test_booking_with_an_extra_charges_the_discount(shop):
+    day = shop.tuesday()
+    shop.register()
+    booking = shop.ok("/api/book", {"day": day, "start": 10 * 60,
+                                    "services": ["haircut"],
+                                    "addons": ["wax-nose"]})["booking"]
+    assert booking["service_name"] == "Haircut + Nose Wax"
+    assert booking["price"] == 145 and booking["discount"] == 5
+    assert booking["duration_min"] == 55
+
+
+def test_an_extra_nobody_offered_is_refused(shop):
+    shop.register()
+    status, data = shop.request("/api/book", {"day": shop.tuesday(),
+                                              "start": 10 * 60,
+                                              "services": ["haircut"],
+                                              "addons": ["facial"]})
+    assert status == 400 and "not offered as an extra" in data["error"]
+
+
+def test_a_standing_booking_keeps_the_extra(shop):
+    shop.register()
+    result = shop.ok("/api/repeat", {"services": ["haircut"],
+                                     "addons": ["wax-ears"],
+                                     "day": shop.tuesday(), "start": 10 * 60,
+                                     "every_weeks": 2, "times": 3})
+    assert all(b["price"] == 145 for b in result["booked"])
+
+
+def test_jay_sets_which_services_are_offered_and_at_what_discount(shop):
+    shop.ok("/api/admin/login", {"pin": "1234"})
+    shop.ok("/api/admin/service", {"id": "hot-towel", "addon": 1})
+    settings = shop.ok("/api/admin/settings", {"addon_discount_pct": 20})["settings"]
+    assert settings["addon_discount_pct"] == 20
+    data = shop.ok("/api/addons?service=haircut")
+    assert data["discount_pct"] == 20
+    towel = next(o for o in data["offers"] if o["id"] == "hot-towel")
+    assert (towel["saving"], towel["price"]) == (6, 24)
+    status, error = shop.request("/api/admin/settings", {"addon_discount_pct": 140})
+    assert status == 400 and "percentage" in error["error"]

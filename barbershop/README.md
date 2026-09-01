@@ -41,6 +41,9 @@ for this year and next. **The admin PIN starts as `1234` — change it**
   picks a Monday by mistake.
 - Only times that actually fit are offered: a 90-minute cut-and-colour
   stops being offered at 17:30 because the shop closes at 19:00.
+- **A quick extra, offered once.** After the services are chosen and
+  before a day is picked, the page asks whether to add a nose or ear wax
+  at 10% off. See below.
 - **Standing appointments** — the same cut, the same day of the week, the
   same time, every 1 to 4 weeks, 2 to 12 times over. See below.
 - "My appointments": everything coming up with its reference
@@ -58,8 +61,8 @@ for this year and next. **The admin PIN starts as `1234` — change it**
   customer against it.
 - Hours: close a single day, give a day its own hours, add a public
   holiday.
-- Price list: change a price or a duration, switch a service off, add a
-  new one. New bookings pick the change up immediately; bookings already
+- Price list: change a price or a duration, switch a service off, tick
+  which services get offered as an extra, add a new one. New bookings pick the change up immediately; bookings already
   in the diary keep the price they were made at.
 - Clients — everyone who has registered, with their number as a
   tap-to-call link, how many visits and no-shows they have, and a PIN
@@ -67,7 +70,26 @@ for this year and next. **The admin PIN starts as `1234` — change it**
 - Takings for any date range, from the appointments marked done.
 - Booking rules: how much notice online bookings need (30 minutes), how
   far apart slots start (15 minutes), how far ahead customers may book
-  (60 days).
+  (60 days), and what comes off an extra taken at booking time (10%).
+
+## The extra Jay would have asked about anyway
+
+A wax on the end of a haircut costs ten minutes Jay has the customer for
+already, so the page asks for it — once, after the services are chosen
+and **before the day is picked**, which is what keeps the arithmetic
+honest: those ten minutes are in the sitting before any time is offered,
+so nothing gets added at the last moment that no longer fits.
+
+Out of the box the extras are the nose wax and the ear wax at 10% off
+(R50 becomes R45). Both parts are Jay's to change: tick **Extra** against
+any service in the price list to have it offered, and set the discount in
+Settings. The discount only ever comes off the extra, never off the
+services, and half a rand rounds up.
+
+The booking keeps what was added and what it saved, so the diary shows
+`Haircut + Nose Wax` at R145 and the takings are the real takings. An
+extra already in the sitting is never offered back, and a standing
+appointment repeats the extra with every visit.
 
 ## Standing appointments
 

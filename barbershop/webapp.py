@@ -187,6 +187,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_days(query)
             if path == "/api/slots":
                 return self.api_slots(query)
+            if path == "/api/addons":
+                return self.api_addons(query)
             if path == "/api/me":
                 return self.api_me()
             if path == "/api/admin/session":
@@ -305,14 +307,27 @@ class Handler(BaseHTTPRequestHandler):
             raise BookingError("That is not a valid date.")
 
     def _sitting_arg(self, query):
-        """The services for one sitting, from ?service=a or ?service=a,b,c."""
+        """The sitting from ?service=a,b&addon=c - services plus any extras."""
         picked = query.get("service") or query.get("services") or []
-        return self.store.sitting(self.store.resolve_services(",".join(picked)))
+        extras = query.get("addon") or query.get("addons") or []
+        return self.store.sitting(
+            self.store.resolve_services(",".join(picked)),
+            self.store.resolve_addons(",".join(extras)))
 
     @staticmethod
     def _services_in(data):
         """The services out of a JSON body - a list, or one id."""
         return data.get("services", data.get("service"))
+
+    @staticmethod
+    def _addons_in(data):
+        return data.get("addons", data.get("addon"))
+
+    def api_addons(self, query):
+        """The upsell: what to offer on the end of what they have chosen."""
+        picked = query.get("service") or query.get("services") or []
+        services = self.store.resolve_services(",".join(picked))
+        self.json({"ok": True, **self.store.addon_offers(services)})
 
     def api_days(self, query):
         """A month of days with a yes/no on whether anything is free."""
@@ -429,7 +444,8 @@ class Handler(BaseHTTPRequestHandler):
             day=data.get("day"), start_min=int(data.get("start", -1)),
             services=self._services_in(data), customer_name=customer["name"],
             phone=customer["phone"], notes=data.get("notes", ""),
-            source="online", customer_id=customer["id"])
+            source="online", customer_id=customer["id"],
+            addons=self._addons_in(data))
         self.server.log(f"booked {booking['ref']} {booking['day']} "
                         f"{booking['time']} {booking['service_name']}")
         self.json({"ok": True, "booking": booking, "shop": SHOP})
@@ -449,7 +465,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json({"ok": True, **self.store.plan_repeat(
             self._services_in(data), data.get("day"),
             int(data.get("start", -1)), data.get("every_weeks", 2),
-            data.get("times", 4))})
+            data.get("times", 4), addons=self._addons_in(data))})
 
     def api_repeat(self, data):
         customer = self.require_client()
@@ -458,7 +474,8 @@ class Handler(BaseHTTPRequestHandler):
         result = self.store.create_repeat(
             customer["id"], self._services_in(data), data.get("day"),
             int(data.get("start", -1)), data.get("every_weeks", 2),
-            data.get("times", 4), notes=data.get("notes", ""))
+            data.get("times", 4), notes=data.get("notes", ""),
+            addons=self._addons_in(data))
         self.server.log(f"repeat for {customer['phone']}: "
                         f"{len(result['booked'])} booked, "
                         f"{len(result['missed'])} not free")
@@ -559,7 +576,8 @@ class Handler(BaseHTTPRequestHandler):
             day=data.get("day"), start_min=int(data.get("start", -1)),
             services=self._services_in(data), customer_name=data.get("name"),
             phone=data.get("phone", ""), notes=data.get("notes", ""),
-            source=data.get("source", "walk-in"), admin=True)
+            source=data.get("source", "walk-in"), admin=True,
+            addons=self._addons_in(data))
         self.json({"ok": True, "booking": booking})
 
     def api_admin_status(self, data):
@@ -608,7 +626,7 @@ class Handler(BaseHTTPRequestHandler):
         for key in ("name", "category", "note"):
             if key in data:
                 fields[key] = str(data[key]).strip()
-        for key in ("price", "duration_min", "active", "sort"):
+        for key in ("price", "duration_min", "active", "addon", "sort"):
             if key in data:
                 try:
                     fields[key] = int(data[key])
@@ -641,7 +659,9 @@ class Handler(BaseHTTPRequestHandler):
         self.json({"ok": True})
 
     def api_admin_settings(self, data):
-        for key in ("lead_time_min", "slot_step_min", "horizon_days"):
+        keys = ("lead_time_min", "slot_step_min", "horizon_days",
+                "addon_discount_pct")
+        for key in keys:
             if key in data:
                 try:
                     value = int(data[key])
@@ -649,12 +669,13 @@ class Handler(BaseHTTPRequestHandler):
                     raise BookingError(f"{key.replace('_', ' ')} has to be a number.")
                 if key == "slot_step_min" and value not in (5, 10, 15, 20, 30):
                     raise BookingError("Slots step by 5, 10, 15, 20 or 30 minutes.")
+                if key == "addon_discount_pct" and not (0 <= value <= 100):
+                    raise BookingError("The discount is a percentage, 0 to 100.")
                 if value < 0:
                     raise BookingError("That cannot be negative.")
                 self.store.set_setting(key, value)
         self.json({"ok": True, "settings": {
-            key: self.store.setting_int(key)
-            for key in ("lead_time_min", "slot_step_min", "horizon_days")}})
+            key: self.store.setting_int(key) for key in keys}})
 
 
 class Server(ThreadingHTTPServer):

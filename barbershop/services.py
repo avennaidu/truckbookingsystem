@@ -12,6 +12,10 @@ changing a price here will not move a price that is already in the shop's
 database.
 """
 
+# Extras Jay offers on the end of a sitting - the page asks about these
+# before a customer picks their day, at the add-on discount.
+ADDONS = {"wax-nose", "wax-ears"}
+
 # id, name, category, price (rand), duration (minutes), note
 CATALOGUE = [
     ("haircut",        "Haircut",                      "Cuts & Shaves", 100, 45,
@@ -66,6 +70,7 @@ def seed_rows():
             "duration_min": duration,
             "note": note,
             "active": 1,
+            "addon": 1 if sid in ADDONS else 0,
             "sort": order.get(category, 99) * 100 + i,
         })
     return rows

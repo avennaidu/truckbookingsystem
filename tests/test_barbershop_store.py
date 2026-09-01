@@ -356,3 +356,102 @@ def test_a_repeat_can_book_a_sitting_of_services(store):
     assert all(b["duration_min"] == 75 for b in result["booked"])
     assert result["series"]["service_name"] == "Haircut + Shave"
     assert result["series"]["service_ids"] == ["haircut", "shave"]
+
+
+# ------------------------------------------------------ the upsell at booking
+
+def test_the_waxes_are_offered_as_extras_out_of_the_box(store):
+    offers = store.addon_offers(store.resolve_services("haircut"))
+    assert offers["discount_pct"] == 10
+    assert {o["id"] for o in offers["offers"]} == {"wax-nose", "wax-ears"}
+    nose = next(o for o in offers["offers"] if o["id"] == "wax-nose")
+    assert (nose["full_price"], nose["saving"], nose["price"]) == (50, 5, 45)
+
+
+def test_an_extra_already_chosen_is_not_offered_again(store):
+    offers = store.addon_offers(store.resolve_services(["haircut", "wax-nose"]))
+    assert [o["id"] for o in offers["offers"]] == ["wax-ears"]
+
+
+def test_jay_can_offer_anything_as_an_extra(store):
+    store.save_service("hot-towel", addon=1)
+    assert "hot-towel" in {o["id"] for o in
+                           store.addon_offers(store.resolve_services("haircut"))["offers"]}
+    store.save_service("wax-nose", addon=0)
+    assert "wax-nose" not in {o["id"] for o in
+                              store.addon_offers(store.resolve_services("haircut"))["offers"]}
+
+
+def test_a_service_switched_off_is_never_upsold(store):
+    store.save_service("wax-nose", active=0)
+    assert [o["id"] for o in
+            store.addon_offers(store.resolve_services("haircut"))["offers"]] \
+        == ["wax-ears"]
+
+
+def test_an_extra_is_charged_at_the_discount(store):
+    total = store.sitting(store.resolve_services("haircut"),
+                          store.resolve_addons("wax-nose"))
+    assert total["name"] == "Haircut + Nose Wax"
+    assert total["full_price"] == 150          # 100 + 50
+    assert total["discount"] == 5              # 10% of the wax only
+    assert total["price"] == 145
+    assert total["duration_min"] == 55         # 45 + 10
+    assert total["addon_ids"] == ["wax-nose"]
+
+
+def test_the_discount_never_touches_the_services(store):
+    total = store.sitting(store.resolve_services(["haircut", "shave"]),
+                          store.resolve_addons(["wax-nose", "wax-ears"]))
+    assert total["discount"] == 10             # 10% of R100 of waxes
+    assert total["price"] == 270               # 180 + 100 - 10
+
+
+def test_jay_can_change_the_discount(store):
+    store.set_setting("addon_discount_pct", 25)
+    total = store.sitting(store.resolve_services("haircut"),
+                          store.resolve_addons("wax-ears"))
+    assert total["discount"] == 13             # a quarter of R50, rounded
+    assert store.addon_offers(store.resolve_services("haircut"))["discount_pct"] == 25
+
+
+def test_a_booking_keeps_what_the_extra_saved(store):
+    booking = store.create_booking(tuesday(store), 10 * 60, ["haircut"],
+                                   "Sipho", "0821234567", addons=["wax-nose"])
+    assert booking["service_name"] == "Haircut + Nose Wax"
+    assert booking["price"] == 145 and booking["discount"] == 5
+    assert booking["duration_min"] == 55
+    assert booking["addon_ids"] == ["wax-nose"]
+    assert booking["service_ids"] == ["haircut", "wax-nose"]
+
+
+def test_an_extra_lengthens_the_slot_it_is_added_to(store):
+    day = tuesday(store)
+    store.create_booking(day, 10 * 60, ["haircut"], "Sipho", "0821234567",
+                         addons=["wax-nose"])
+    # The haircut alone would have freed 10:45; the wax holds it to 10:55.
+    assert 10 * 60 + 45 not in store.available(day, 30)
+    assert 11 * 60 in store.available(day, 30)
+
+
+def test_only_services_marked_as_extras_are_discounted(store):
+    with pytest.raises(BookingError, match="not offered as an extra"):
+        store.create_booking(tuesday(store), 10 * 60, ["haircut"],
+                             "Sipho", "0821234567", addons=["facial"])
+
+
+def test_jay_may_add_anything_as_an_extra_by_hand(store):
+    booking = store.create_booking(tuesday(store), 10 * 60, ["haircut"],
+                                   "Walk-in", "", addons=["facial"], admin=True)
+    assert booking["discount"] == 16           # 10% of the R160 facial
+    assert booking["price"] == 244
+
+
+def test_a_repeat_carries_the_extra_every_time(store):
+    sipho = store.register("Sipho", "0821234567", "1234")
+    result = store.create_repeat(sipho["id"], ["haircut"], tuesday(store),
+                                 10 * 60, every_weeks=2, times=3,
+                                 addons=["wax-nose"])
+    assert len(result["booked"]) == 3
+    assert all(b["price"] == 145 and b["addon_ids"] == ["wax-nose"]
+               for b in result["booked"])

@@ -111,6 +111,15 @@
         </div>
       </section>
 
+      <!-- the upsell, before a day is picked so the extra's minutes count -->
+      <section id="stepExtra" class="card hidden">
+        <h2><span class="step-no">+</span>Add a quick extra?</h2>
+        <p class="small muted" style="margin-top:-6px" id="extraBlurb"></p>
+        <div id="extras"></div>
+        <button class="ghost" id="noExtra" style="width:100%;margin-top:10px">
+          No thanks &mdash; pick a day</button>
+      </section>
+
       <!-- step 2: day ---------------------------------------------------- -->
       <section id="stepDay" class="card hidden">
         <h2><span class="step-no">2</span>Pick a day</h2>
@@ -203,17 +212,34 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { services: [], picked: [], day: null, start: null,
-                month: null, shop: null, me: null, mode: "once" };
+const state = { services: [], picked: [], extras: [], day: null, start: null,
+                month: null, shop: null, me: null, mode: "once", asked: false };
 
 /* Everything below asks the sitting, not one service: the chair is held for
    the whole run of them and the price is what they add up to. */
-const sitting = () => ({
-  ids: state.picked.map((s) => s.id),
-  name: state.picked.map((s) => s.name).join(" + "),
-  duration: state.picked.reduce((n, s) => n + s.duration_min, 0),
-  price: state.picked.reduce((n, s) => n + s.price, 0),
-});
+const sitting = () => {
+  const every = state.picked.concat(state.extras);
+  // An offer's `price` is already discounted; `full_price` is what the board
+  // says. Add up the board prices, then take the saving off once.
+  const board = (s) => (s.full_price === undefined ? s.price : s.full_price);
+  const full = every.reduce((n, s) => n + board(s), 0);
+  const saving = state.extras.reduce((n, s) => n + (s.saving || 0), 0);
+  return {
+    ids: state.picked.map((s) => s.id),
+    addons: state.extras.map((s) => s.id),
+    name: every.map((s) => s.name).join(" + "),
+    duration: every.reduce((n, s) => n + s.duration_min, 0),
+    full,
+    saving,
+    price: full - saving,
+  };
+};
+const query = () => {
+  const total = sitting();
+  return `service=${encodeURIComponent(total.ids.join(","))}`
+    + (total.addons.length
+       ? `&addon=${encodeURIComponent(total.addons.join(","))}` : "");
+};
 const spell = (mins) => (mins < 60 ? `${mins} min`
   : `${Math.floor(mins / 60)}h${mins % 60 ? " " + (mins % 60) + "m" : ""}`);
 
@@ -420,23 +446,72 @@ function toggleService(id) {
   if (at < 0) state.picked.push(state.services.find((s) => s.id === id));
   else state.picked.splice(at, 1);
   state.day = state.start = null;
+  $("stepExtra").classList.add("hidden");
   $("stepDay").classList.add("hidden");
   $("stepTime").classList.add("hidden");
   $("stepWhen").classList.add("hidden");
   const chosen = new Set(state.picked.map((s) => s.id));
   $("menu").querySelectorAll(".service").forEach((b) =>
     b.classList.toggle("on", chosen.has(b.dataset.id)));
-  const total = sitting();
-  $("picked").classList.toggle("hidden", !state.picked.length);
-  $("pickedList").innerHTML = state.picked.length
-    ? `${escape(total.name)}<br><span class="muted">${spell(total.duration)} in the chair</span>`
-    : "";
-  $("pickedTotal").textContent = `R${total.price}`;
+  if (!state.picked.length) { state.extras = []; state.asked = false; }
+  drawBasket();
   flash("");
 }
 
-function startDay() {
+function drawBasket() {
+  const total = sitting();
+  $("picked").classList.toggle("hidden", !state.picked.length);
+  $("pickedList").innerHTML = state.picked.length
+    ? `${escape(total.name)}<br><span class="muted">${spell(total.duration)}
+       in the chair${total.saving ? ` &middot; R${total.saving} off` : ""}</span>`
+    : "";
+  $("pickedTotal").textContent = `R${total.price}`;
+}
+
+/* The upsell: asked once, after the services are chosen and before a day is
+   picked, so the extra's ten minutes are in the slot arithmetic. */
+async function startDay() {
   if (!state.picked.length) return flash("Pick at least one service.");
+  if (!state.asked) {
+    state.asked = true;
+    try {
+      const data = await api(`/api/addons?${query()}`);
+      if (data.offers.length && data.discount_pct) return offerExtras(data);
+    } catch (error) { /* no upsell is better than a broken page */ }
+  }
+  showDay();
+}
+
+function offerExtras(data) {
+  $("extraBlurb").textContent = `Taken with your appointment, these come off `
+    + `the board at ${data.discount_pct}% less.`;
+  $("extras").innerHTML = data.offers.map((offer) => `
+    <button class="service" data-add="${escape(offer.id)}">
+      <span class="who"><span class="name">${escape(offer.name)}</span><br>
+        <span class="meta">${offer.duration_min} min &middot; usually
+          R${offer.full_price}</span></span>
+      <span class="price">+R${offer.price}
+        <br><span class="meta" style="color:var(--good)">save R${offer.saving}</span>
+      </span></button>`).join("");
+  $("extras").querySelectorAll("[data-add]").forEach((button) => {
+    button.onclick = () => addExtra(button.dataset.add, data);
+  });
+  $("stepExtra").classList.remove("hidden");
+  $("stepExtra").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function addExtra(id, data) {
+  const offer = data.offers.find((o) => o.id === id);
+  if (!offer || state.extras.some((e) => e.id === id)) return;
+  state.extras.push(offer);
+  drawBasket();
+  const left = { ...data, offers: data.offers.filter((o) => o.id !== id) };
+  if (left.offers.length) offerExtras(left);
+  else showDay();
+}
+
+function showDay() {
+  $("stepExtra").classList.add("hidden");
   $("stepDay").classList.remove("hidden");
   const today = new Date(state.shop.today + "T00:00:00");
   state.month = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -453,8 +528,7 @@ async function drawMonth() {
   const lastDom = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   $("cal").innerHTML = `<div class="muted small"
       style="grid-column:1/-1">Checking the diary&hellip;</div>`;
-  const { days } = await api(`/api/days?service=${encodeURIComponent(
-    sitting().ids.join(","))}&from=${iso(month)}&days=${lastDom}`);
+  const { days } = await api(`/api/days?${query()}&from=${iso(month)}&days=${lastDom}`);
 
   const lead = (new Date(month.getFullYear(), month.getMonth(), 1).getDay() + 6) % 7;
   const cells = Array.from({ length: lead }, () =>
@@ -495,8 +569,7 @@ async function chooseDay(day) {
   $("stepTime").classList.remove("hidden");
   $("stepWhen").classList.add("hidden");
   $("slots").innerHTML = `<span class="muted small">Loading times&hellip;</span>`;
-  const data = await api(`/api/slots?service=${encodeURIComponent(
-    sitting().ids.join(","))}&day=${day}`);
+  const data = await api(`/api/slots?${query()}&day=${day}`);
   $("dayLine").textContent = `${data.label} · ${data.hours || data.reason}` +
     (data.holiday ? ` · ${data.holiday}` : "");
   if (!data.slots.length) {
@@ -521,7 +594,9 @@ function chooseSlot(start, label) {
   const when = new Date(state.day + "T00:00:00");
   const total = sitting();
   $("summary").innerHTML = `<strong class="gold">${escape(total.name)}</strong>
-    &middot; R${total.price} &middot; ${spell(total.duration)}<br>
+    &middot; R${total.price}${total.saving
+      ? ` <span class="small muted">(R${total.full} less R${total.saving})</span>`
+      : ""} &middot; ${spell(total.duration)}<br>
     ${escape(when.toLocaleDateString("en-ZA",
       { weekday: "long", day: "numeric", month: "long" }))} at ${escape(label)}`;
   $("stepWhen").classList.remove("hidden");
@@ -546,7 +621,8 @@ async function previewRepeat() {
   $("plan").innerHTML = `<span class="muted small">Checking the dates&hellip;</span>`;
   try {
     const data = await api("/api/repeat/preview", {
-      services: sitting().ids, day: state.day, start: state.start,
+      services: sitting().ids, addons: sitting().addons,
+      day: state.day, start: state.start,
       every_weeks: Number($("every").value), times: Number($("times").value) });
     const rows = data.plan.map((entry) => `
       <div class="spread small" style="padding:4px 0">
@@ -575,7 +651,7 @@ async function confirm() {
     if (state.mode === "once") {
       const { booking } = await api("/api/book", {
         day: state.day, start: state.start, services: sitting().ids,
-        notes: $("notes").value });
+        addons: sitting().addons, notes: $("notes").value });
       showDone(`
         <div class="note good">Keep this reference -
           <strong>${escape(booking.ref)}</strong></div>
@@ -588,7 +664,8 @@ async function confirm() {
           <span class="gold">R${booking.price}</span></div>`);
     } else {
       const data = await api("/api/repeat", {
-        services: sitting().ids, day: state.day, start: state.start,
+        services: sitting().ids, addons: sitting().addons,
+      day: state.day, start: state.start,
         every_weeks: Number($("every").value), times: Number($("times").value),
         notes: $("notes").value });
       showDone(`
@@ -634,6 +711,7 @@ $("signout").onclick = async () => {
   location.reload();
 };
 $("toDay").onclick = startDay;
+$("noExtra").onclick = showDay;
 $("prevMonth").onclick = () => shiftMonth(-1);
 $("nextMonth").onclick = () => shiftMonth(1);
 $("modeOnce").onclick = () => setMode("once");
@@ -651,6 +729,9 @@ $("bookMore").onclick = () => {
   $("stepWhen").classList.add("hidden");
   $("menu").querySelectorAll(".service").forEach((b) => b.classList.remove("on"));
   state.picked = [];
+  state.extras = [];
+  state.asked = false;
+  $("stepExtra").classList.add("hidden");
   $("picked").classList.add("hidden");
   state.day = null;
   state.start = null;

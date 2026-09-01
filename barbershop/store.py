@@ -34,6 +34,7 @@ FINISHED = ("completed", "cancelled", "no_show")
 ALL_STATUSES = LIVE + FINISHED
 
 MAX_SERVICES = 6                 # services booked back to back in one sitting
+MAX_ADDONS = 4                   # quick extras offered on top of them
 MAX_REPEATS = 12                 # a repeat books at most a year of a weekly cut
 REPEAT_EVERY = (1, 2, 3, 4)      # weekly, fortnightly, every three, monthly
 SESSION_DAYS = 60                # how long a customer stays signed in
@@ -44,6 +45,7 @@ DEFAULT_SETTINGS = {
     "lead_time_min": "30",       # no online booking inside the next 30 minutes
     "slot_step_min": "15",       # slots start on the quarter hour
     "horizon_days": "60",        # how far ahead customers may book
+    "addon_discount_pct": "10",  # off an extra taken at the time of booking
 }
 
 SCHEMA = """
@@ -55,6 +57,7 @@ CREATE TABLE IF NOT EXISTS services (
     duration_min INTEGER NOT NULL,
     note         TEXT NOT NULL DEFAULT '',
     active       INTEGER NOT NULL DEFAULT 1,
+    addon        INTEGER NOT NULL DEFAULT 0,
     sort         INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS bookings (
@@ -65,6 +68,8 @@ CREATE TABLE IF NOT EXISTS bookings (
     duration_min  INTEGER NOT NULL,
     service_id    TEXT NOT NULL,
     service_ids   TEXT NOT NULL DEFAULT '',
+    addon_ids     TEXT NOT NULL DEFAULT '',
+    discount      INTEGER NOT NULL DEFAULT 0,
     service_name  TEXT NOT NULL,
     price         INTEGER NOT NULL DEFAULT 0,
     customer_name TEXT NOT NULL,
@@ -194,6 +199,19 @@ class Store:
             self.db.execute("ALTER TABLE bookings ADD COLUMN customer_id INTEGER")
         if "series_id" not in columns:
             self.db.execute("ALTER TABLE bookings ADD COLUMN series_id INTEGER")
+        service_columns = {row["name"] for row in
+                           self.db.execute("PRAGMA table_info(services)")}
+        if "addon" not in service_columns:
+            self.db.execute("ALTER TABLE services ADD COLUMN addon INTEGER"
+                            " NOT NULL DEFAULT 0")
+            self.db.execute("UPDATE services SET addon = 1 WHERE id IN"
+                            " ('wax-nose', 'wax-ears')")
+        if "addon_ids" not in columns:
+            self.db.execute("ALTER TABLE bookings ADD COLUMN addon_ids TEXT"
+                            " NOT NULL DEFAULT ''")
+        if "discount" not in columns:
+            self.db.execute("ALTER TABLE bookings ADD COLUMN discount INTEGER"
+                            " NOT NULL DEFAULT 0")
         if "service_ids" not in columns:
             self.db.execute("ALTER TABLE bookings ADD COLUMN service_ids TEXT"
                             " NOT NULL DEFAULT ''")
@@ -205,8 +223,9 @@ class Store:
         if not have:
             self.db.executemany(
                 "INSERT INTO services (id, name, category, price, duration_min,"
-                " note, active, sort) VALUES (:id, :name, :category, :price,"
-                " :duration_min, :note, :active, :sort)", seed_rows())
+                " note, active, addon, sort) VALUES (:id, :name, :category,"
+                " :price, :duration_min, :note, :active, :addon, :sort)",
+                seed_rows())
         for key, value in DEFAULT_SETTINGS.items():
             self.db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -273,6 +292,20 @@ class Store:
                 "SELECT * FROM services WHERE id = ?", (service_id,)).fetchone()
         return dict(row) if row else None
 
+    def resolve_addons(self, addons, admin=False):
+        """The extras chosen alongside the services, if any."""
+        if not addons:
+            return []
+        chosen = self.resolve_services(addons, admin=admin)
+        if len(chosen) > MAX_ADDONS:
+            raise BookingError(f"That is more than {MAX_ADDONS} extras in one "
+                               "sitting.")
+        for service in chosen:
+            if not service["addon"] and not admin:
+                raise BookingError(
+                    f"{service['name']} is not offered as an extra.")
+        return chosen
+
     def resolve_services(self, services, admin=False):
         """The services for one sitting - a cut, or a cut and a beard trim.
 
@@ -300,19 +333,56 @@ class Store:
             chosen.append(service)
         return chosen
 
-    @staticmethod
-    def sitting(services):
-        """What a list of services adds up to: one label, one run of minutes."""
+    def addon_discount(self) -> int:
+        """The percentage off an extra taken at the time of booking."""
+        pct = self.setting_int("addon_discount_pct", 10)
+        return min(max(pct, 0), 100)
+
+    def sitting(self, services, addons=()):
+        """What a sitting adds up to.
+
+        Services go at the price on the board. Extras taken at the same time
+        - a nose wax on the end of a haircut - come off the same board at a
+        discount, because they cost Jay ten minutes he has the customer for
+        anyway.
+        """
+        every = list(services) + list(addons)
+        full = sum(s["price"] for s in every)
+        # Half a rand rounds up, the way a person works it out on paper -
+        # round() would break R12.50 down to R12 and surprise everybody.
+        discount = (sum(s["price"] for s in addons)
+                    * self.addon_discount() + 50) // 100
         return {
-            "ids": [s["id"] for s in services],
-            "name": " + ".join(s["name"] for s in services),
-            "duration_min": sum(s["duration_min"] for s in services),
-            "price": sum(s["price"] for s in services),
+            "ids": [s["id"] for s in every],
+            "service_ids": [s["id"] for s in services],
+            "addon_ids": [s["id"] for s in addons],
+            "name": " + ".join(s["name"] for s in every),
+            "duration_min": sum(s["duration_min"] for s in every),
+            "full_price": full,
+            "discount": discount,
+            "price": full - discount,
         }
+
+    def addon_offers(self, services, admin=False):
+        """The extras worth asking about, priced with the discount applied.
+
+        Anything already in the sitting is left out - there is no upsell in
+        offering somebody what they have just chosen.
+        """
+        already = {s["id"] for s in services}
+        pct = self.addon_discount()
+        offers = []
+        for service in self.services(active_only=not admin):
+            if not service["addon"] or service["id"] in already:
+                continue
+            saving = (service["price"] * pct + 50) // 100
+            offers.append({**service, "full_price": service["price"],
+                           "saving": saving, "price": service["price"] - saving})
+        return {"discount_pct": pct, "offers": offers}
 
     def save_service(self, service_id, **fields):
         allowed = ("name", "category", "price", "duration_min", "note",
-                   "active", "sort")
+                   "active", "addon", "sort")
         sets, values = [], []
         for key in allowed:
             if key in fields:
@@ -502,15 +572,20 @@ class Store:
         booking["service_ids"] = [part for part in
                                   str(booking.get("service_ids") or "").split(",")
                                   if part]
+        booking["addon_ids"] = [part for part in
+                                str(booking.get("addon_ids") or "").split(",")
+                                if part]
         booking["repeat"] = bool(booking.get("series_id"))
         booking["live"] = booking["status"] in LIVE
         return booking
 
     def create_booking(self, day, start_min, services, customer_name, phone,
                        notes="", source="online", admin=False,
-                       customer_id=None, series_id=None, ignore_horizon=False):
+                       customer_id=None, series_id=None, ignore_horizon=False,
+                       addons=None):
         chosen = self.resolve_services(services, admin=admin)
-        sitting = self.sitting(chosen)
+        extras = self.resolve_addons(addons, admin=admin)
+        sitting = self.sitting(chosen, extras)
         customer_name = str(customer_name or "").strip()
         if len(customer_name) < 2:
             raise BookingError("Please give the name the booking is under.")
@@ -569,13 +644,14 @@ class Store:
                     raise BookingError("Could not raise a booking reference.")
                 cur = self.db.execute(
                     "INSERT INTO bookings (ref, day, start_min, duration_min,"
-                    " service_id, service_ids, service_name, price,"
-                    " customer_name, phone, notes, status, source, created_at,"
-                    " customer_id, series_id)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?,"
-                    " ?, ?)",
+                    " service_id, service_ids, addon_ids, discount,"
+                    " service_name, price, customer_name, phone, notes, status,"
+                    " source, created_at, customer_id, series_id)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked',"
+                    " ?, ?, ?, ?)",
                     (ref, day, start_min, duration, sitting["ids"][0],
-                     ",".join(sitting["ids"]), sitting["name"], sitting["price"],
+                     ",".join(sitting["ids"]), ",".join(sitting["addon_ids"]),
+                     sitting["discount"], sitting["name"], sitting["price"],
                      customer_name, phone, str(notes or "").strip(), source,
                      self.now().isoformat(timespec="seconds"),
                      customer_id, series_id))
@@ -884,7 +960,8 @@ class Store:
         return [(start + timedelta(weeks=every_weeks * n)).isoformat()
                 for n in range(times)]
 
-    def plan_repeat(self, services, first_day, start_min, every_weeks, times):
+    def plan_repeat(self, services, first_day, start_min, every_weeks, times,
+                    addons=None):
         """What a repeat would look like, before anything is written.
 
         Every date is checked the way a single booking is - the shop has to
@@ -892,7 +969,8 @@ class Store:
         to be free - so the customer sees which dates are theirs and which
         ones they will have to arrange another way.
         """
-        sitting = self.sitting(self.resolve_services(services))
+        sitting = self.sitting(self.resolve_services(services),
+                               self.resolve_addons(addons))
         start_min = int(start_min)
         duration = sitting["duration_min"]
         end_min = start_min + duration
@@ -919,14 +997,13 @@ class Store:
                 "every_weeks": int(every_weeks), "times": int(times)}
 
     def create_repeat(self, customer_id, services, first_day, start_min,
-                      every_weeks, times, notes=""):
+                      every_weeks, times, notes="", addons=None):
         """Book the dates of a repeat that are free, and say which were not."""
         customer = self.customer(customer_id)
         if not customer:
             raise BookingError("Please sign in first.")
-        chosen = self.resolve_services(services)
         preview = self.plan_repeat(services, first_day, start_min,
-                                   every_weeks, times)
+                                   every_weeks, times, addons=addons)
         if not preview["free"]:
             raise BookingError(
                 "None of those dates are free - try another time or day.")
@@ -949,10 +1026,11 @@ class Store:
                 continue
             try:
                 booked.append(self.create_booking(
-                    entry["day"], start_min, preview["service"]["ids"],
+                    entry["day"], start_min, preview["service"]["service_ids"],
                     customer["name"], customer["phone"], notes=notes,
                     source="repeat", customer_id=customer["id"],
-                    series_id=series_id, ignore_horizon=True))
+                    series_id=series_id, ignore_horizon=True,
+                    addons=preview["service"]["addon_ids"]))
             except BookingError as exc:     # taken in the seconds since the plan
                 missed.append(dict(entry, ok=False, reason=str(exc)))
         if not booked:

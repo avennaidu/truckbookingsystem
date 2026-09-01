@@ -171,7 +171,9 @@
         <h2>Price list</h2>
         <p class="small muted" style="margin-top:-6px">Change a price or a
           duration and it applies to new bookings straight away. Switch a
-          service off to take it off the customer page.</p>
+          service off to take it off the customer page. Tick <strong>Extra</strong>
+          and the booking page offers it as a discounted add-on before the
+          customer picks a day.</p>
         <div id="svcList" style="overflow-x:auto"></div>
       </section>
       <section class="card">
@@ -221,9 +223,16 @@
               <option>5</option><option>10</option><option>15</option>
               <option>20</option><option>30</option></select></div>
         </div>
-        <div class="field"><label for="stHorizon">Customers may book this far
-          ahead (days)</label>
-          <input id="stHorizon" type="number" min="1" max="365"></div>
+        <div class="fields-2">
+          <div class="field"><label for="stHorizon">Customers may book this far
+            ahead (days)</label>
+            <input id="stHorizon" type="number" min="1" max="365"></div>
+          <div class="field"><label for="stAddon">Discount on an extra (%)</label>
+            <input id="stAddon" type="number" min="0" max="100"></div>
+        </div>
+        <p class="small muted" style="margin-top:-6px">The booking page offers
+          every service ticked <strong>Extra</strong> in the price list at this
+          much off, once, before the customer picks a day.</p>
         <button id="stSave">Save</button>
       </section>
       <section class="card">
@@ -565,11 +574,11 @@ async function loadServices() {
       ${s.duration_min} min${s.active ? "" : " (off)"}</option>`).join("");
   drawWalkIn();
   $("svcList").innerHTML = `<table><thead><tr>
-      <th>Service</th><th>Category</th><th class="num">Price</th>
-      <th class="num">Minutes</th><th class="num">On</th></tr></thead><tbody>
+      <th>Service</th><th class="num">Price</th>
+      <th class="num">Minutes</th><th class="num">On</th>
+      <th class="num">Extra</th></tr></thead><tbody>
     ${services.map((s) => `<tr>
-      <td>${escape(s.name)}</td>
-      <td class="muted small">${escape(s.category)}</td>
+      <td>${escape(s.name)}<div class="muted small">${escape(s.category)}</div></td>
       <td class="num"><input style="width:80px;text-align:right"
         type="number" min="0" value="${s.price}"
         data-svc="${escape(s.id)}" data-field="price"></td>
@@ -579,6 +588,9 @@ async function loadServices() {
       <td class="num"><input type="checkbox" style="width:auto"
         ${s.active ? "checked" : ""}
         data-svc="${escape(s.id)}" data-field="active"></td>
+      <td class="num"><input type="checkbox" style="width:auto"
+        ${s.addon ? "checked" : ""}
+        data-svc="${escape(s.id)}" data-field="addon"></td>
     </tr>`).join("")}</tbody></table>`;
   $("svcList").querySelectorAll("[data-svc]").forEach((input) => {
     input.onchange = async () => {
@@ -638,7 +650,7 @@ async function saveSettings() {
   try {
     const { settings } = await api("/api/admin/settings", {
       lead_time_min: $("stLead").value, slot_step_min: $("stStep").value,
-      horizon_days: $("stHorizon").value });
+      horizon_days: $("stHorizon").value, addon_discount_pct: $("stAddon").value });
     state.settings = settings;
     flash("Saved.", "good");
   } catch (error) { flash(error.message); }
@@ -664,6 +676,7 @@ const onTab = {
     $("stLead").value = settings.lead_time_min;
     $("stStep").value = settings.slot_step_min;
     $("stHorizon").value = settings.horizon_days;
+    $("stAddon").value = settings.addon_discount_pct;
   },
 };
 
