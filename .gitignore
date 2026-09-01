@@ -9,3 +9,8 @@ report.txt
 __pycache__/
 .pytest_cache/
 *.egg-info/
+
+# Barbershop bookings - the live diary, never commit it
+barbershop.db
+barbershop.db-wal
+barbershop.db-shm

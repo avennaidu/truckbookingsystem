@@ -1,5 +1,10 @@
 # Truck Booking Bot — Navis N4 (ICTSI Durban DGT)
 
+> This repository also holds **[Faded Studio by Jay bookings](barbershop/README.md)**
+> — a separate, self-contained barbershop appointment app
+> (`python -m barbershop serve`). It shares nothing with the truck bot
+> below except the repository.
+
 Books truck appointment slots on the terminal's Navis N4 web system for
 AVEMEL LOG, so nobody has to sit refreshing the screen at slot-release
 times. Slots appear at scheduled reviews (01:30, 06:30, 09:30, 13:30,
