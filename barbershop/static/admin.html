@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jay's diary &middot; Faded Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230a0a0c%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2218%22 text-anchor=%22middle%22 fill=%22%23d4a24c%22 font-family=%22serif%22%3EF%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/brand.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead" style="padding-bottom:0">
+    <h1 style="font-size:20px">Jay&rsquo;s diary</h1>
+    <p>Faded Studio by Jay</p>
+    <div class="rule"></div>
+  </header>
+
+  <div id="flash"></div>
+
+  <!-- sign in ------------------------------------------------------------ -->
+  <section id="signin" class="card hidden">
+    <h2>Sign in</h2>
+    <div class="field">
+      <label for="pin">PIN</label>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="off"
+             placeholder="4 digits">
+    </div>
+    <button class="primary" id="signinGo" style="width:100%">Open the diary</button>
+  </section>
+
+  <!-- the app ------------------------------------------------------------ -->
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button data-tab="diary" class="on">Diary</button>
+      <button data-tab="upcoming">Upcoming</button>
+      <button data-tab="hours">Hours &amp; days off</button>
+      <button data-tab="services">Price list</button>
+      <button data-tab="takings">Takings</button>
+      <button data-tab="settings">Settings</button>
+    </div>
+
+    <!-- diary ------------------------------------------------------------ -->
+    <div id="tab-diary">
+      <section class="card">
+        <div class="spread" style="margin-bottom:10px">
+          <button class="small ghost" id="dayPrev">&#8592;</button>
+          <div style="text-align:center">
+            <strong id="dayTitle" class="gold"></strong>
+            <div class="small muted" id="daySub"></div>
+          </div>
+          <button class="small ghost" id="dayNext">&#8594;</button>
+        </div>
+        <div class="row" style="justify-content:center">
+          <input id="dayPick" type="date" style="max-width:190px">
+          <button class="small" id="dayToday">Today</button>
+        </div>
+        <div id="dayStats" class="note" style="margin-top:12px"></div>
+        <div id="dayList" style="margin-top:12px"></div>
+      </section>
+
+      <section class="card">
+        <h2>Add a walk-in or a phone booking</h2>
+        <div class="fields-2">
+          <div class="field"><label for="wService">Service</label>
+            <select id="wService"></select></div>
+          <div class="field"><label for="wTime">Start time</label>
+            <input id="wTime" type="time" step="300"></div>
+        </div>
+        <div class="fields-2">
+          <div class="field"><label for="wName">Name</label>
+            <input id="wName" placeholder="Customer"></div>
+          <div class="field"><label for="wPhone">Mobile (optional)</label>
+            <input id="wPhone" type="tel"></div>
+        </div>
+        <div class="field"><label for="wNotes">Notes</label>
+          <input id="wNotes" placeholder="e.g. skin fade"></div>
+        <button class="primary" id="wAdd" style="width:100%">Put it in the chair</button>
+      </section>
+
+      <section class="card">
+        <h2>Block out time</h2>
+        <p class="small muted" style="margin-top:-6px">Lunch, a supply run,
+          anything that keeps the chair busy without a customer.</p>
+        <div class="fields-2">
+          <div class="field"><label for="bFrom">From</label>
+            <input id="bFrom" type="time" step="300"></div>
+          <div class="field"><label for="bTo">To</label>
+            <input id="bTo" type="time" step="300"></div>
+        </div>
+        <div class="field"><label for="bWhy">Reason</label>
+          <input id="bWhy" placeholder="Lunch"></div>
+        <button id="bAdd" style="width:100%">Block this time</button>
+      </section>
+    </div>
+
+    <!-- upcoming --------------------------------------------------------- -->
+    <div id="tab-upcoming" class="hidden">
+      <section class="card">
+        <div class="spread"><h2 style="margin:0">What&rsquo;s coming</h2>
+          <select id="upDays" style="max-width:150px">
+            <option value="7">Next 7 days</option>
+            <option value="14" selected>Next 14 days</option>
+            <option value="30">Next 30 days</option>
+            <option value="60">Next 60 days</option>
+          </select></div>
+        <div id="upList" style="margin-top:12px"></div>
+      </section>
+    </div>
+
+    <!-- hours ------------------------------------------------------------ -->
+    <div id="tab-hours" class="hidden">
+      <section class="card">
+        <h2>Change one day</h2>
+        <p class="small muted" style="margin-top:-6px">Normal week: Tue&ndash;Sat
+          9am&ndash;7pm, Sun and public holidays 9am&ndash;6pm, closed Mondays.
+          Override any single day here.</p>
+        <div class="field"><label for="hDay">Day</label>
+          <input id="hDay" type="date"></div>
+        <div id="hInfo" class="note" style="margin-bottom:12px"></div>
+        <div class="fields-2">
+          <div class="field"><label for="hOpen">Opens</label>
+            <input id="hOpen" type="time" step="300" value="09:00"></div>
+          <div class="field"><label for="hClose">Closes</label>
+            <input id="hClose" type="time" step="300" value="19:00"></div>
+        </div>
+        <div class="field"><label for="hNote">Note</label>
+          <input id="hNote" placeholder="e.g. family day"></div>
+        <div class="row">
+          <button id="hSave">Use these hours</button>
+          <button class="danger" id="hClose2">Close this day</button>
+          <button class="ghost" id="hClear">Back to normal</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Public holidays</h2>
+        <p class="small muted" style="margin-top:-6px">Public holidays run on
+          Sunday hours (9am&ndash;6pm). South African holidays are already
+          loaded; add anything else the shop treats the same way.</p>
+        <div class="fields-2">
+          <div class="field"><label for="phDay">Date</label>
+            <input id="phDay" type="date"></div>
+          <div class="field"><label for="phName">Name</label>
+            <input id="phName" placeholder="Public holiday"></div>
+        </div>
+        <div class="row">
+          <button id="phAdd">Add</button>
+          <button class="ghost" id="phRemove">Remove that date</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- services --------------------------------------------------------- -->
+    <div id="tab-services" class="hidden">
+      <section class="card">
+        <h2>Price list</h2>
+        <p class="small muted" style="margin-top:-6px">Change a price or a
+          duration and it applies to new bookings straight away. Switch a
+          service off to take it off the customer page.</p>
+        <div id="svcList" style="overflow-x:auto"></div>
+      </section>
+      <section class="card">
+        <h2>Add a service</h2>
+        <div class="fields-2">
+          <div class="field"><label for="sName">Name</label>
+            <input id="sName"></div>
+          <div class="field"><label for="sCat">Category</label>
+            <input id="sCat" placeholder="Cuts &amp; Shaves"></div>
+        </div>
+        <div class="fields-2">
+          <div class="field"><label for="sPrice">Price (R)</label>
+            <input id="sPrice" type="number" min="0"></div>
+          <div class="field"><label for="sMin">Minutes</label>
+            <input id="sMin" type="number" min="5" step="5"></div>
+        </div>
+        <button id="sAdd" style="width:100%">Add to the list</button>
+      </section>
+    </div>
+
+    <!-- takings ---------------------------------------------------------- -->
+    <div id="tab-takings" class="hidden">
+      <section class="card">
+        <h2>Takings</h2>
+        <p class="small muted" style="margin-top:-6px">Counts appointments you
+          marked <em>done</em>.</p>
+        <div class="fields-2">
+          <div class="field"><label for="tFrom">From</label>
+            <input id="tFrom" type="date"></div>
+          <div class="field"><label for="tTo">To</label>
+            <input id="tTo" type="date"></div>
+        </div>
+        <button id="tGo">Show</button>
+        <div id="tOut" style="margin-top:14px"></div>
+      </section>
+    </div>
+
+    <!-- settings --------------------------------------------------------- -->
+    <div id="tab-settings" class="hidden">
+      <section class="card">
+        <h2>Booking rules</h2>
+        <div class="fields-2">
+          <div class="field"><label for="stLead">Notice needed (minutes)</label>
+            <input id="stLead" type="number" min="0" step="5"></div>
+          <div class="field"><label for="stStep">Slots every (minutes)</label>
+            <select id="stStep">
+              <option>5</option><option>10</option><option>15</option>
+              <option>20</option><option>30</option></select></div>
+        </div>
+        <div class="field"><label for="stHorizon">Customers may book this far
+          ahead (days)</label>
+          <input id="stHorizon" type="number" min="1" max="365"></div>
+        <button id="stSave">Save</button>
+      </section>
+      <section class="card">
+        <h2>Change the PIN</h2>
+        <div class="field"><label for="newPin">New PIN (4&ndash;8 digits)</label>
+          <input id="newPin" inputmode="numeric" autocomplete="off"></div>
+        <div class="row">
+          <button id="pinSave">Save PIN</button>
+          <button class="ghost" id="signout">Sign out</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>The customer page</h2>
+        <p class="small">Send customers to <a href="/" class="gold">this
+          link</a> &mdash; the same address as this page without
+          <code>/admin</code>. It works on any phone.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { day: null, services: [], settings: {} };
+
+function escape(text) {
+  return String(text ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function flash(message, kind = "bad") {
+  $("flash").innerHTML = message
+    ? `<div class="note ${kind}" style="margin-bottom:14px">${escape(message)}</div>` : "";
+  if (message) window.scrollTo({ top: 0, behavior: "smooth" });
+}
+async function api(path, body) {
+  const options = body
+    ? { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body) }
+    : {};
+  const response = await fetch(path, options);
+  const data = await response.json().catch(() => ({ ok: false,
+    error: "The server is not answering." }));
+  if (response.status === 401) { showSignin(); throw new Error(data.error); }
+  if (!data.ok) throw new Error(data.error || "Something went wrong.");
+  return data;
+}
+const money = (rand) => `R${rand ?? 0}`;
+const hhmm = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:` +
+  `${String(minutes % 60).padStart(2, "0")}`;
+const toMin = (text) => {
+  const [h, m] = String(text || "").split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN;
+};
+const shiftDay = (day, step) => {
+  const d = new Date(day + "T00:00:00");
+  d.setDate(d.getDate() + step);
+  return d.toISOString().slice(0, 10);
+};
+
+/* ------------------------------------------------------------- sign in --- */
+
+function showSignin() {
+  $("app").classList.add("hidden");
+  $("signin").classList.remove("hidden");
+}
+async function signin() {
+  try {
+    await api("/api/admin/login", { pin: $("pin").value });
+    $("pin").value = "";
+    flash("");
+    await openDiary();
+  } catch (error) { flash(error.message); }
+}
+async function openDiary() {
+  $("signin").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  const shop = await api("/api/shop");
+  state.today = shop.today;
+  if (!state.day) state.day = shop.today;
+  $("tFrom").value = shiftDay(shop.today, -29);
+  $("tTo").value = shop.today;
+  $("hDay").value = state.day;
+  await loadServices();
+  await loadDay();
+}
+
+/* --------------------------------------------------------------- diary --- */
+
+async function loadDay() {
+  $("dayPick").value = state.day;
+  const data = await api(`/api/admin/day?day=${state.day}`);
+  $("dayTitle").textContent = data.info.label;
+  $("daySub").textContent = data.info.closed
+    ? `Closed - ${data.info.reason}`
+    : `${data.hours}${data.info.holiday ? " · " + data.info.holiday : ""}`;
+  const live = data.bookings.filter((b) => b.status === "booked" ||
+    b.status === "confirmed");
+  $("dayStats").innerHTML = `<strong class="gold">${live.length}</strong>
+    in the chair &middot; <strong>${Math.floor(data.booked_minutes / 60)}h
+    ${data.booked_minutes % 60}m</strong> booked &middot;
+    <strong class="gold">${money(data.expected)}</strong> expected`;
+
+  const rows = [
+    ...data.bookings.map((b) => ({ at: b.start_min, kind: "booking", item: b })),
+    ...data.blocks.map((b) => ({ at: b.start_min, kind: "block", item: b })),
+  ].sort((a, b) => a.at - b.at);
+
+  $("dayList").innerHTML = rows.length ? rows.map(({ kind, item }) =>
+    kind === "block" ? blockRow(item) : bookingRow(item)).join("")
+    : `<p class="muted small">Nothing in the diary for this day.</p>`;
+
+  $("dayList").querySelectorAll("[data-act]").forEach((button) => {
+    button.onclick = () => act(button.dataset.act, button.dataset.id);
+  });
+  $("dayList").querySelectorAll("[data-move]").forEach((button) => {
+    button.onclick = () => moveRow(button.dataset.move);
+  });
+}
+
+function bookingRow(b) {
+  const live = b.status === "booked" || b.status === "confirmed";
+  const tag = live ? "live" : (b.status === "completed" ? "done" : "gone");
+  return `<div class="appt ${live ? "" : (b.status === "completed" ? "done" : "gone")}">
+    <div class="when">${escape(b.time)}<div class="small muted"
+      style="font-weight:400">${escape(b.end_time)}</div></div>
+    <div class="who">
+      <div><strong>${escape(b.customer_name)}</strong>
+        <span class="tag ${tag}">${escape(b.status.replace("_", " "))}</span></div>
+      <div class="sub">${escape(b.service_name)} &middot; ${money(b.price)}
+        &middot; ${b.duration_min} min &middot; ${escape(b.ref)}</div>
+      ${b.phone ? `<div class="sub"><a href="tel:${escape(b.phone)}"
+        class="gold" style="text-decoration:none">${escape(b.phone)}</a>
+        &middot; ${escape(b.source)}</div>` : `<div class="sub">${escape(b.source)}</div>`}
+      ${b.notes ? `<div class="sub">&ldquo;${escape(b.notes)}&rdquo;</div>` : ""}
+      ${live ? `<div class="row" style="margin-top:8px">
+        <button class="small" data-act="completed" data-id="${b.id}">Done</button>
+        <button class="small ghost" data-act="no_show" data-id="${b.id}">No show</button>
+        <button class="small ghost" data-move="${b.id}">Move</button>
+        <button class="small danger" data-act="cancelled" data-id="${b.id}">Cancel</button>
+      </div>` : `<div class="row" style="margin-top:8px">
+        <button class="small ghost" data-act="booked" data-id="${b.id}">Put back</button>
+      </div>`}
+      <div id="move-${b.id}" class="hidden" style="margin-top:8px">
+        <div class="fields-2">
+          <div class="field"><label>New day</label>
+            <input type="date" id="moveDay-${b.id}" value="${escape(b.day)}"></div>
+          <div class="field"><label>New time</label>
+            <input type="time" step="300" id="moveTime-${b.id}"
+              value="${hhmm(b.start_min)}"></div>
+        </div>
+        <button class="small primary" data-act="move" data-id="${b.id}">Move it</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function blockRow(b) {
+  return `<div class="appt blocked">
+    <div class="when">${escape(b.start)}<div class="small muted"
+      style="font-weight:400">${escape(b.end)}</div></div>
+    <div class="who">
+      <div><strong>Blocked</strong> <span class="tag">${escape(b.reason || "off")}</span></div>
+      <div class="row" style="margin-top:8px">
+        <button class="small ghost" data-act="unblock" data-id="${b.id}">Free it up</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function moveRow(id) { $(`move-${id}`).classList.toggle("hidden"); }
+
+async function act(action, id) {
+  try {
+    if (action === "unblock") {
+      await api("/api/admin/unblock", { id: Number(id) });
+    } else if (action === "move") {
+      await api("/api/admin/move", { id: Number(id),
+        day: $(`moveDay-${id}`).value, start: toMin($(`moveTime-${id}`).value) });
+    } else {
+      if (action === "cancelled" &&
+          !window.confirm("Cancel this appointment?")) return;
+      await api("/api/admin/status", { id: Number(id), status: action });
+    }
+    flash("");
+    await loadDay();
+  } catch (error) { flash(error.message); }
+}
+
+async function addWalkIn() {
+  try {
+    await api("/api/admin/booking", {
+      day: state.day, start: toMin($("wTime").value), service: $("wService").value,
+      name: $("wName").value, phone: $("wPhone").value, notes: $("wNotes").value,
+      source: "walk-in" });
+    $("wName").value = $("wPhone").value = $("wNotes").value = "";
+    flash("Added to the diary.", "good");
+    await loadDay();
+  } catch (error) { flash(error.message); }
+}
+
+async function addBlock() {
+  try {
+    await api("/api/admin/block", { day: state.day, start: $("bFrom").value,
+      end: $("bTo").value, reason: $("bWhy").value });
+    $("bWhy").value = "";
+    flash("");
+    await loadDay();
+  } catch (error) { flash(error.message); }
+}
+
+/* ------------------------------------------------------------ upcoming --- */
+
+async function loadUpcoming() {
+  const { bookings } = await api(`/api/admin/upcoming?days=${$("upDays").value}`);
+  if (!bookings.length) {
+    $("upList").innerHTML = `<p class="muted small">Nothing booked yet.</p>`;
+    return;
+  }
+  let day = null, html = "";
+  for (const b of bookings) {
+    if (b.day !== day) {
+      day = b.day;
+      html += `<div class="cat-title">${escape(b.date_label)}</div>`;
+    }
+    html += `<div class="appt">
+      <div class="when">${escape(b.time)}</div>
+      <div class="who"><div><strong>${escape(b.customer_name)}</strong></div>
+        <div class="sub">${escape(b.service_name)} &middot; ${money(b.price)}
+          &middot; ${escape(b.phone || "no number")} &middot; ${escape(b.ref)}</div>
+      </div></div>`;
+  }
+  $("upList").innerHTML = html;
+}
+
+/* --------------------------------------------------------------- hours --- */
+
+async function showDayInfo() {
+  if (!$("hDay").value) return;
+  const data = await api(`/api/admin/day?day=${$("hDay").value}`);
+  const info = data.info;
+  $("hInfo").innerHTML = info.closed
+    ? `<strong>${escape(info.label)}</strong> &mdash; closed
+       (${escape(info.reason)})`
+    : `<strong>${escape(info.label)}</strong> &mdash; ${escape(data.hours)}
+       ${info.holiday ? "&middot; " + escape(info.holiday) : ""}
+       ${info.custom ? "&middot; overridden" : ""}`;
+}
+
+async function saveHours(mode) {
+  try {
+    const day = $("hDay").value;
+    if (!day) throw new Error("Pick a date first.");
+    const body = { day, note: $("hNote").value };
+    if (mode === "clear") body.clear = true;
+    else if (mode === "closed") body.closed = true;
+    else { body.open = $("hOpen").value; body.close = $("hClose").value; }
+    await api("/api/admin/hours", body);
+    flash("Saved.", "good");
+    await showDayInfo();
+    if (day === state.day) await loadDay();
+  } catch (error) { flash(error.message); }
+}
+
+async function holiday(remove) {
+  try {
+    await api("/api/admin/holiday", { day: $("phDay").value,
+      name: $("phName").value || "Public holiday", remove });
+    flash("Saved.", "good");
+    await showDayInfo();
+  } catch (error) { flash(error.message); }
+}
+
+/* ------------------------------------------------------------ services --- */
+
+async function loadServices() {
+  const { services } = await api("/api/admin/services");
+  state.services = services;
+  $("wService").innerHTML = services.map((s) =>
+    `<option value="${escape(s.id)}">${escape(s.name)} - ${money(s.price)},
+      ${s.duration_min} min${s.active ? "" : " (off)"}</option>`).join("");
+  $("svcList").innerHTML = `<table><thead><tr>
+      <th>Service</th><th>Category</th><th class="num">Price</th>
+      <th class="num">Minutes</th><th class="num">On</th></tr></thead><tbody>
+    ${services.map((s) => `<tr>
+      <td>${escape(s.name)}</td>
+      <td class="muted small">${escape(s.category)}</td>
+      <td class="num"><input style="width:80px;text-align:right"
+        type="number" min="0" value="${s.price}"
+        data-svc="${escape(s.id)}" data-field="price"></td>
+      <td class="num"><input style="width:80px;text-align:right"
+        type="number" min="5" step="5" value="${s.duration_min}"
+        data-svc="${escape(s.id)}" data-field="duration_min"></td>
+      <td class="num"><input type="checkbox" style="width:auto"
+        ${s.active ? "checked" : ""}
+        data-svc="${escape(s.id)}" data-field="active"></td>
+    </tr>`).join("")}</tbody></table>`;
+  $("svcList").querySelectorAll("[data-svc]").forEach((input) => {
+    input.onchange = async () => {
+      try {
+        const value = input.type === "checkbox" ? (input.checked ? 1 : 0)
+          : Number(input.value);
+        await api("/api/admin/service",
+          { id: input.dataset.svc, [input.dataset.field]: value });
+        flash("Price list updated.", "good");
+        await loadServices();
+      } catch (error) { flash(error.message); }
+    };
+  });
+}
+
+async function addService() {
+  try {
+    await api("/api/admin/new-service", { name: $("sName").value,
+      category: $("sCat").value, price: $("sPrice").value,
+      duration_min: $("sMin").value });
+    $("sName").value = $("sCat").value = $("sPrice").value = $("sMin").value = "";
+    flash("Added.", "good");
+    await loadServices();
+  } catch (error) { flash(error.message); }
+}
+
+/* ------------------------------------------------------------- takings --- */
+
+async function loadTakings() {
+  try {
+    const { takings } = await api(
+      `/api/admin/takings?first=${$("tFrom").value}&last=${$("tTo").value}`);
+    const counts = Object.entries(takings.statuses)
+      .map(([k, n]) => `${n} ${k.replace("_", " ")}`).join(" &middot; ") || "nothing yet";
+    $("tOut").innerHTML = `
+      <div class="note good"><strong class="gold">${money(takings.rand)}</strong>
+        from ${takings.jobs} finished appointments</div>
+      <p class="small muted" style="margin:10px 0">${counts}</p>
+      <table><thead><tr><th>Day</th><th class="num">Jobs</th>
+        <th class="num">Takings</th></tr></thead><tbody>
+        ${takings.days.map((d) => `<tr><td>${escape(d.day)}</td>
+          <td class="num">${d.jobs}</td>
+          <td class="num gold">${money(d.rand)}</td></tr>`).join("")
+          || `<tr><td colspan="3" class="muted">Nothing in that window.</td></tr>`}
+      </tbody></table>
+      <div class="cat-title">Busiest services</div>
+      <table><tbody>${takings.services.map((s) => `<tr>
+        <td>${escape(s.service_name)}</td><td class="num">${s.jobs}</td>
+        <td class="num gold">${money(s.rand)}</td></tr>`).join("")
+        || `<tr><td class="muted">Nothing yet.</td></tr>`}</tbody></table>`;
+  } catch (error) { flash(error.message); }
+}
+
+/* ------------------------------------------------------------ settings --- */
+
+async function saveSettings() {
+  try {
+    const { settings } = await api("/api/admin/settings", {
+      lead_time_min: $("stLead").value, slot_step_min: $("stStep").value,
+      horizon_days: $("stHorizon").value });
+    state.settings = settings;
+    flash("Saved.", "good");
+  } catch (error) { flash(error.message); }
+}
+async function savePin() {
+  try {
+    await api("/api/admin/pin", { pin: $("newPin").value });
+    $("newPin").value = "";
+    flash("PIN changed.", "good");
+  } catch (error) { flash(error.message); }
+}
+
+/* ---------------------------------------------------------------- tabs --- */
+
+const onTab = {
+  upcoming: loadUpcoming,
+  hours: showDayInfo,
+  services: loadServices,
+  takings: loadTakings,
+  settings: async () => {
+    const { settings } = await api("/api/admin/settings", {});
+    $("stLead").value = settings.lead_time_min;
+    $("stStep").value = settings.slot_step_min;
+    $("stHorizon").value = settings.horizon_days;
+  },
+};
+
+document.querySelectorAll(".tabs button").forEach((button) => {
+  button.onclick = async () => {
+    document.querySelectorAll(".tabs button").forEach((b) =>
+      b.classList.toggle("on", b === button));
+    ["diary", "upcoming", "hours", "services", "takings", "settings"]
+      .forEach((name) => $(`tab-${name}`).classList
+        .toggle("hidden", name !== button.dataset.tab));
+    flash("");
+    if (onTab[button.dataset.tab]) {
+      try { await onTab[button.dataset.tab](); }
+      catch (error) { flash(error.message); }
+    }
+  };
+});
+
+/* ------------------------------------------------------------------------ */
+
+$("signinGo").onclick = signin;
+$("pin").onkeydown = (e) => { if (e.key === "Enter") signin(); };
+$("dayPrev").onclick = () => { state.day = shiftDay(state.day, -1); loadDay(); };
+$("dayNext").onclick = () => { state.day = shiftDay(state.day, 1); loadDay(); };
+$("dayToday").onclick = () => { state.day = state.today; loadDay(); };
+$("dayPick").onchange = () => { state.day = $("dayPick").value; loadDay(); };
+$("wAdd").onclick = addWalkIn;
+$("bAdd").onclick = addBlock;
+$("upDays").onchange = loadUpcoming;
+$("hDay").onchange = showDayInfo;
+$("hSave").onclick = () => saveHours("hours");
+$("hClose2").onclick = () => saveHours("closed");
+$("hClear").onclick = () => saveHours("clear");
+$("phAdd").onclick = () => holiday(false);
+$("phRemove").onclick = () => holiday(true);
+$("sAdd").onclick = addService;
+$("tGo").onclick = loadTakings;
+$("stSave").onclick = saveSettings;
+$("pinSave").onclick = savePin;
+$("signout").onclick = async () => {
+  await fetch("/api/admin/logout", { method: "POST" });
+  location.reload();
+};
+
+(async function start() {
+  const { signed_in: signedIn } = await api("/api/admin/session");
+  if (signedIn) { await openDiary(); } else { showSignin(); }
+})();
+</script>
+</body>
+</html>
