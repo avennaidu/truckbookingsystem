@@ -361,3 +361,68 @@ def test_jay_sees_the_client_list_and_resets_a_pin(shop):
 def test_the_client_list_is_behind_the_shop_pin(shop):
     status, _ = shop.request("/api/admin/clients")
     assert status == 401
+
+
+# ------------------------------------------- several services in one sitting
+
+def test_slots_are_offered_for_the_whole_sitting(shop):
+    day = shop.tuesday()
+    one = shop.ok(f"/api/slots?service=haircut&day={day}")
+    both = shop.ok(f"/api/slots?service=haircut,shave&day={day}")
+    assert both["service"]["duration_min"] == 75
+    assert both["service"]["name"] == "Haircut + Shave"
+    assert both["slots"][0]["end"] == "10:15 AM"        # 9:00 plus 75 minutes
+    assert len(both["slots"]) < len(one["slots"])       # a longer run fits less
+
+
+def test_booking_several_services_holds_one_longer_slot(shop):
+    day = shop.tuesday()
+    shop.register()
+    booking = shop.ok("/api/book", {"day": day, "start": 10 * 60,
+                                    "services": ["haircut", "shave"]})["booking"]
+    assert booking["service_name"] == "Haircut + Shave"
+    assert booking["price"] == 180 and booking["duration_min"] == 75
+    left = shop.ok(f"/api/slots?service=shave&day={day}")["slots"]
+    assert 11 * 60 not in [s["start"] for s in left]     # still in the chair
+    assert 11 * 60 + 15 in [s["start"] for s in left]
+
+
+def test_one_service_still_books_the_old_way(shop):
+    shop.register()
+    booking = shop.ok("/api/book", {"day": shop.tuesday(), "start": 10 * 60,
+                                    "service": "haircut"})["booking"]
+    assert booking["service_ids"] == ["haircut"]
+    assert booking["price"] == 100
+
+
+def test_an_empty_basket_is_refused(shop):
+    shop.register()
+    status, data = shop.request("/api/book", {"day": shop.tuesday(),
+                                              "start": 600, "services": []})
+    assert status == 400 and "at least one" in data["error"]
+
+
+def test_a_standing_sitting_of_two_services(shop):
+    day = shop.tuesday()
+    shop.register()
+    plan = shop.ok("/api/repeat/preview", {"services": ["haircut", "shave"],
+                                           "day": day, "start": 10 * 60,
+                                           "every_weeks": 2, "times": 3})
+    assert plan["service"]["duration_min"] == 75
+    result = shop.ok("/api/repeat", {"services": ["haircut", "shave"],
+                                     "day": day, "start": 10 * 60,
+                                     "every_weeks": 2, "times": 3})
+    assert len(result["booked"]) == 3
+    assert shop.ok("/api/me")["repeats"][0]["service_name"] == "Haircut + Shave"
+
+
+def test_jay_writes_a_walk_in_with_several_services(shop):
+    day = shop.tuesday()
+    shop.ok("/api/admin/login", {"pin": "1234"})
+    shop.ok("/api/admin/booking", {"day": day, "start": 9 * 60,
+                                   "services": ["haircut", "hot-towel"],
+                                   "name": "Walk-in"})
+    view = shop.ok(f"/api/admin/day?day={day}")
+    assert view["bookings"][0]["service_name"] == "Haircut + Hot Towel"
+    assert view["expected"] == 130
+    assert view["booked_minutes"] == 60

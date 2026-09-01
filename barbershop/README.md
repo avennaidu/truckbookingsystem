@@ -33,6 +33,10 @@ for this year and next. **The admin PIN starts as `1234` — change it**
 - The whole price list, grouped the way the board is, with the price and
   how long the chair is held for. It shows before signing in, so people
   can check prices without registering; booking needs an account.
+- **Several services in one sitting** — tap a cut, a beard trim and a hot
+  towel and the chair is held for all three back to back, at what they
+  add up to. Up to six; the same service twice is a father and son in one
+  slot.
 - A month calendar. Closed days and fully-booked days are dim, so nobody
   picks a Monday by mistake.
 - Only times that actually fit are offered: a 90-minute cut-and-colour
@@ -47,8 +51,9 @@ for this year and next. **The admin PIN starts as `1234` — change it**
 
 - Diary — every appointment for a day with the customer's number as a tap-to-call
   link, and buttons for done / no-show / move / cancel.
-- Walk-ins and phone bookings, typed straight in at any time, even a
-  service switched off for online booking.
+- Walk-ins and phone bookings, typed straight in at any time, with as
+  many services as the sitting takes, and even a service switched off for
+  online booking.
 - Blocked time for lunch or a supply run — the chair goes busy without a
   customer against it.
 - Hours: close a single day, give a day its own hours, add a public
@@ -66,7 +71,7 @@ for this year and next. **The admin PIN starts as `1234` — change it**
 
 ## Standing appointments
 
-A customer picks the service, the first date and the time, then chooses
+A customer picks the services, the first date and the time, then chooses
 how often (every week, or every 2, 3 or 4 weeks) and how many times (2 to
 12). Before anything is written the portal shows every date it would
 take, with the ones that are not free marked and why — closed that day,
@@ -82,6 +87,17 @@ of a year — which is the point of holding the slot.
 anything already done alone. Individual dates in the run can be cancelled
 on their own, and Jay can move any one of them from the diary like any
 other appointment.
+
+## One sitting, several services
+
+A booking holds one run of the chair. Pick more than one service and the
+run is their durations added up and the price is their prices added up —
+a haircut and a shave is 75 minutes at R180, and the times offered are
+only the ones where a 75 minute run actually fits before closing.
+
+The appointment reads as `Haircut + Shave` in the diary and on the
+customer's phone, and it keeps the list of services on it, so changing a
+price later never rewrites what somebody already booked.
 
 ## Hours and durations
 

@@ -278,3 +278,81 @@ def test_the_booking_row_is_ready_to_show(store):
     assert booking["end_time"] == sched.friendly(10 * 60 + 45)
     assert booking["status"] == "booked"
     assert booking["price"] == 100
+
+
+# ------------------------------------------------ several services at a time
+
+def test_a_sitting_adds_its_services_up(store):
+    chosen = store.resolve_services(["haircut", "shave"])
+    total = store.sitting(chosen)
+    assert total["ids"] == ["haircut", "shave"]
+    assert total["name"] == "Haircut + Shave"
+    assert total["duration_min"] == 75           # 45 + 30
+    assert total["price"] == 180                 # 100 + 80
+
+
+def test_services_may_be_given_as_a_list_or_a_string(store):
+    assert [s["id"] for s in store.resolve_services("haircut,shave")] == \
+        ["haircut", "shave"]
+    assert [s["id"] for s in store.resolve_services("haircut")] == ["haircut"]
+
+
+def test_a_sitting_holds_the_chair_for_the_whole_run(store):
+    day = tuesday(store)
+    booking = store.create_booking(day, 10 * 60, ["haircut", "shave"],
+                                   "Sipho", "0821234567")
+    assert booking["service_name"] == "Haircut + Shave"
+    assert booking["service_ids"] == ["haircut", "shave"]
+    assert booking["duration_min"] == 75 and booking["price"] == 180
+    assert booking["end_min"] == 10 * 60 + 75
+    # 11:00 is still inside the sitting, so nobody else may start there.
+    with pytest.raises(BookingError, match="taken"):
+        store.create_booking(day, 11 * 60, "shave", "Andile", "0827654321")
+    assert 11 * 60 + 15 in store.available(day, 30)
+
+
+def test_slots_are_offered_for_the_combined_length(store):
+    day = tuesday(store)
+    total = store.sitting(store.resolve_services(["cut-colour-set", "facial"]))
+    assert total["duration_min"] == 120
+    slots = store.available(day, total["duration_min"])
+    assert max(slots) + 120 <= 19 * 60           # nothing runs past closing
+    with pytest.raises(BookingError, match="Cut, Colour, Wash, Set \\+ Facial"):
+        store.create_booking(day, 17 * 60 + 30, ["cut-colour-set", "facial"],
+                             "Zanele", "0821112222")
+
+
+def test_a_sitting_needs_at_least_one_service_and_not_too_many(store):
+    day = tuesday(store)
+    with pytest.raises(BookingError, match="at least one"):
+        store.create_booking(day, 10 * 60, [], "Sipho", "0821234567")
+    with pytest.raises(BookingError, match="more than"):
+        store.create_booking(day, 10 * 60, ["haircut"] * 7, "Sipho", "0821234567")
+
+
+def test_the_same_service_twice_is_a_father_and_son(store):
+    booking = store.create_booking(tuesday(store), 10 * 60,
+                                   ["haircut", "haircut"], "Sipho", "0821234567")
+    assert booking["duration_min"] == 90 and booking["price"] == 200
+
+
+def test_a_service_switched_off_is_refused_online_but_not_to_jay(store):
+    day = tuesday(store)
+    store.save_service("facial", active=0)
+    with pytest.raises(BookingError, match="Facial"):
+        store.create_booking(day, 10 * 60, ["haircut", "facial"],
+                             "Sipho", "0821234567")
+    booking = store.create_booking(day, 10 * 60, ["haircut", "facial"],
+                                   "Walk-in", "", admin=True)
+    assert booking["duration_min"] == 75
+
+
+def test_a_repeat_can_book_a_sitting_of_services(store):
+    sipho = store.register("Sipho", "0821234567", "1234")
+    first = tuesday(store)
+    result = store.create_repeat(sipho["id"], ["haircut", "shave"], first,
+                                 10 * 60, every_weeks=2, times=3)
+    assert len(result["booked"]) == 3
+    assert all(b["duration_min"] == 75 for b in result["booked"])
+    assert result["series"]["service_name"] == "Haircut + Shave"
+    assert result["series"]["service_ids"] == ["haircut", "shave"]

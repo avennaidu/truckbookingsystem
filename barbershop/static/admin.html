@@ -63,11 +63,12 @@
       <section class="card">
         <h2>Add a walk-in or a phone booking</h2>
         <div class="fields-2">
-          <div class="field"><label for="wService">Service</label>
+          <div class="field"><label for="wService">Services</label>
             <select id="wService"></select></div>
           <div class="field"><label for="wTime">Start time</label>
             <input id="wTime" type="time" step="300"></div>
         </div>
+        <div id="wPicked" class="row" style="margin-bottom:12px"></div>
         <div class="fields-2">
           <div class="field"><label for="wName">Name</label>
             <input id="wName" placeholder="Customer"></div>
@@ -246,7 +247,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { day: null, services: [], settings: {} };
+const state = { day: null, services: [], walkIn: [], settings: {} };
 
 function escape(text) {
   return String(text ?? "").replace(/[&<>"']/g, (c) =>
@@ -413,11 +414,14 @@ async function act(action, id) {
 
 async function addWalkIn() {
   try {
+    if (!state.walkIn.length) throw new Error("Pick at least one service.");
     await api("/api/admin/booking", {
-      day: state.day, start: toMin($("wTime").value), service: $("wService").value,
+      day: state.day, start: toMin($("wTime").value), services: state.walkIn,
       name: $("wName").value, phone: $("wPhone").value, notes: $("wNotes").value,
       source: "walk-in" });
     $("wName").value = $("wPhone").value = $("wNotes").value = "";
+    state.walkIn = [];
+    drawWalkIn();
     flash("Added to the diary.", "good");
     await loadDay();
   } catch (error) { flash(error.message); }
@@ -533,12 +537,33 @@ async function loadClients() {
 
 /* ------------------------------------------------------------ services --- */
 
+function drawWalkIn() {
+  const picked = state.walkIn.map((id) => state.services.find((s) => s.id === id))
+    .filter(Boolean);
+  const mins = picked.reduce((n, s) => n + s.duration_min, 0);
+  const rand = picked.reduce((n, s) => n + s.price, 0);
+  $("wPicked").innerHTML = picked.length
+    ? picked.map((s, i) => `<span class="tag live">${escape(s.name)}
+        <button class="small ghost" data-drop="${i}" style="padding:0 4px;
+          border:none;background:none;color:inherit">&times;</button></span>`).join("")
+      + `<span class="small muted">${mins} min &middot; ${money(rand)}</span>`
+    : `<span class="small muted">Pick one or more services above.</span>`;
+  $("wPicked").querySelectorAll("[data-drop]").forEach((button) => {
+    button.onclick = () => {
+      state.walkIn.splice(Number(button.dataset.drop), 1);
+      drawWalkIn();
+    };
+  });
+}
+
 async function loadServices() {
   const { services } = await api("/api/admin/services");
   state.services = services;
-  $("wService").innerHTML = services.map((s) =>
+  $("wService").innerHTML = `<option value="">Add a service&hellip;</option>`
+    + services.map((s) =>
     `<option value="${escape(s.id)}">${escape(s.name)} - ${money(s.price)},
       ${s.duration_min} min${s.active ? "" : " (off)"}</option>`).join("");
+  drawWalkIn();
   $("svcList").innerHTML = `<table><thead><tr>
       <th>Service</th><th>Category</th><th class="num">Price</th>
       <th class="num">Minutes</th><th class="num">On</th></tr></thead><tbody>
@@ -665,6 +690,12 @@ $("dayPrev").onclick = () => { state.day = shiftDay(state.day, -1); loadDay(); }
 $("dayNext").onclick = () => { state.day = shiftDay(state.day, 1); loadDay(); };
 $("dayToday").onclick = () => { state.day = state.today; loadDay(); };
 $("dayPick").onchange = () => { state.day = $("dayPick").value; loadDay(); };
+$("wService").onchange = () => {
+  if (!$("wService").value) return;
+  state.walkIn.push($("wService").value);
+  $("wService").value = "";
+  drawWalkIn();
+};
 $("wAdd").onclick = addWalkIn;
 $("bAdd").onclick = addBlock;
 $("upDays").onchange = loadUpcoming;

@@ -33,6 +33,7 @@ LIVE = ("booked", "confirmed")
 FINISHED = ("completed", "cancelled", "no_show")
 ALL_STATUSES = LIVE + FINISHED
 
+MAX_SERVICES = 6                 # services booked back to back in one sitting
 MAX_REPEATS = 12                 # a repeat books at most a year of a weekly cut
 REPEAT_EVERY = (1, 2, 3, 4)      # weekly, fortnightly, every three, monthly
 SESSION_DAYS = 60                # how long a customer stays signed in
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     start_min     INTEGER NOT NULL,
     duration_min  INTEGER NOT NULL,
     service_id    TEXT NOT NULL,
+    service_ids   TEXT NOT NULL DEFAULT '',
     service_name  TEXT NOT NULL,
     price         INTEGER NOT NULL DEFAULT 0,
     customer_name TEXT NOT NULL,
@@ -192,6 +194,11 @@ class Store:
             self.db.execute("ALTER TABLE bookings ADD COLUMN customer_id INTEGER")
         if "series_id" not in columns:
             self.db.execute("ALTER TABLE bookings ADD COLUMN series_id INTEGER")
+        if "service_ids" not in columns:
+            self.db.execute("ALTER TABLE bookings ADD COLUMN service_ids TEXT"
+                            " NOT NULL DEFAULT ''")
+            self.db.execute("UPDATE bookings SET service_ids = service_id"
+                            " WHERE service_ids = ''")
 
     def _seed(self):
         have = self.db.execute("SELECT COUNT(*) FROM services").fetchone()[0]
@@ -265,6 +272,43 @@ class Store:
             row = self.db.execute(
                 "SELECT * FROM services WHERE id = ?", (service_id,)).fetchone()
         return dict(row) if row else None
+
+    def resolve_services(self, services, admin=False):
+        """The services for one sitting - a cut, or a cut and a beard trim.
+
+        Takes one id, a list of them, or a comma separated string, and keeps
+        the order the customer picked. Repeats are allowed on purpose: two
+        haircuts back to back is a father and son in the same slot.
+        """
+        if isinstance(services, str):
+            ids = [part.strip() for part in services.split(",") if part.strip()]
+        else:
+            ids = [str(part).strip() for part in (services or []) if str(part).strip()]
+        if not ids:
+            raise BookingError("Please choose at least one service.")
+        if len(ids) > MAX_SERVICES:
+            raise BookingError(
+                f"That is more than {MAX_SERVICES} services in one sitting - "
+                "please book the rest as a second appointment.")
+        chosen = []
+        for service_id in ids:
+            service = self.service(service_id)
+            if not service:
+                raise BookingError("That service is not on the list any more.")
+            if not admin and not service["active"]:
+                raise BookingError(f"{service['name']} is not being booked online.")
+            chosen.append(service)
+        return chosen
+
+    @staticmethod
+    def sitting(services):
+        """What a list of services adds up to: one label, one run of minutes."""
+        return {
+            "ids": [s["id"] for s in services],
+            "name": " + ".join(s["name"] for s in services),
+            "duration_min": sum(s["duration_min"] for s in services),
+            "price": sum(s["price"] for s in services),
+        }
 
     def save_service(self, service_id, **fields):
         allowed = ("name", "category", "price", "duration_min", "note",
@@ -455,18 +499,18 @@ class Store:
         booking["end_time"] = sched.friendly(booking["end_min"])
         booking["date_label"] = date.fromisoformat(
             booking["day"]).strftime("%a %d %b %Y")
+        booking["service_ids"] = [part for part in
+                                  str(booking.get("service_ids") or "").split(",")
+                                  if part]
         booking["repeat"] = bool(booking.get("series_id"))
         booking["live"] = booking["status"] in LIVE
         return booking
 
-    def create_booking(self, day, start_min, service_id, customer_name, phone,
+    def create_booking(self, day, start_min, services, customer_name, phone,
                        notes="", source="online", admin=False,
                        customer_id=None, series_id=None, ignore_horizon=False):
-        service = self.service(service_id)
-        if not service:
-            raise BookingError("That service is not on the list any more.")
-        if not admin and not service["active"]:
-            raise BookingError(f"{service['name']} is not being booked online.")
+        chosen = self.resolve_services(services, admin=admin)
+        sitting = self.sitting(chosen)
         customer_name = str(customer_name or "").strip()
         if len(customer_name) < 2:
             raise BookingError("Please give the name the booking is under.")
@@ -476,7 +520,7 @@ class Store:
 
         day = str(day)
         start_min = int(start_min)
-        duration = int(service["duration_min"])
+        duration = sitting["duration_min"]
         end_min = start_min + duration
 
         try:
@@ -494,7 +538,7 @@ class Store:
             raise BookingError(f"The shop is closed on {info['label']}.")
         if start_min < info["open_min"] or end_min > info["close_min"]:
             raise BookingError(
-                f"{service['name']} takes {duration} minutes, so it has to "
+                f"{sitting['name']} takes {duration} minutes, so it has to "
                 f"start between {sched.friendly(info['open_min'])} and "
                 f"{sched.friendly(info['close_min'] - duration)}.")
         if not admin and start_min < self.earliest_start(day):
@@ -525,12 +569,14 @@ class Store:
                     raise BookingError("Could not raise a booking reference.")
                 cur = self.db.execute(
                     "INSERT INTO bookings (ref, day, start_min, duration_min,"
-                    " service_id, service_name, price, customer_name, phone,"
-                    " notes, status, source, created_at, customer_id, series_id)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?, ?, ?)",
-                    (ref, day, start_min, duration, service["id"],
-                     service["name"], service["price"], customer_name, phone,
-                     str(notes or "").strip(), source,
+                    " service_id, service_ids, service_name, price,"
+                    " customer_name, phone, notes, status, source, created_at,"
+                    " customer_id, series_id)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?,"
+                    " ?, ?)",
+                    (ref, day, start_min, duration, sitting["ids"][0],
+                     ",".join(sitting["ids"]), sitting["name"], sitting["price"],
+                     customer_name, phone, str(notes or "").strip(), source,
                      self.now().isoformat(timespec="seconds"),
                      customer_id, series_id))
                 self.db.commit()
@@ -838,7 +884,7 @@ class Store:
         return [(start + timedelta(weeks=every_weeks * n)).isoformat()
                 for n in range(times)]
 
-    def plan_repeat(self, service_id, first_day, start_min, every_weeks, times):
+    def plan_repeat(self, services, first_day, start_min, every_weeks, times):
         """What a repeat would look like, before anything is written.
 
         Every date is checked the way a single booking is - the shop has to
@@ -846,11 +892,9 @@ class Store:
         to be free - so the customer sees which dates are theirs and which
         ones they will have to arrange another way.
         """
-        service = self.service(service_id)
-        if not service or not service["active"]:
-            raise BookingError("That service is not being booked online.")
+        sitting = self.sitting(self.resolve_services(services))
         start_min = int(start_min)
-        duration = int(service["duration_min"])
+        duration = sitting["duration_min"]
         end_min = start_min + duration
         plan = []
         for day in self.repeat_dates(first_day, every_weeks, times):
@@ -869,18 +913,19 @@ class Store:
             else:
                 entry["ok"] = True
             plan.append(entry)
-        return {"service": service, "plan": plan,
+        return {"service": sitting, "plan": plan,
                 "free": sum(1 for entry in plan if entry["ok"]),
                 "start_min": start_min, "time": sched.friendly(start_min),
                 "every_weeks": int(every_weeks), "times": int(times)}
 
-    def create_repeat(self, customer_id, service_id, first_day, start_min,
+    def create_repeat(self, customer_id, services, first_day, start_min,
                       every_weeks, times, notes=""):
         """Book the dates of a repeat that are free, and say which were not."""
         customer = self.customer(customer_id)
         if not customer:
             raise BookingError("Please sign in first.")
-        preview = self.plan_repeat(service_id, first_day, start_min,
+        chosen = self.resolve_services(services)
+        preview = self.plan_repeat(services, first_day, start_min,
                                    every_weeks, times)
         if not preview["free"]:
             raise BookingError(
@@ -890,7 +935,7 @@ class Store:
                 "INSERT INTO series (customer_id, service_id, first_day,"
                 " start_min, every_weeks, times, notes, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (int(customer_id), preview["service"]["id"], str(first_day),
+                (int(customer_id), ",".join(preview["service"]["ids"]), str(first_day),
                  int(start_min), int(every_weeks), int(times),
                  str(notes or "").strip(),
                  self.now().isoformat(timespec="seconds")))
@@ -904,7 +949,7 @@ class Store:
                 continue
             try:
                 booked.append(self.create_booking(
-                    entry["day"], start_min, preview["service"]["id"],
+                    entry["day"], start_min, preview["service"]["ids"],
                     customer["name"], customer["phone"], notes=notes,
                     source="repeat", customer_id=customer["id"],
                     series_id=series_id, ignore_horizon=True))
@@ -926,8 +971,14 @@ class Store:
         if not row:
             return None
         series = dict(row)
-        service = self.service(series["service_id"])
-        series["service_name"] = service["name"] if service else series["service_id"]
+        try:
+            sitting = self.sitting(self.resolve_services(series["service_id"],
+                                                         admin=True))
+            series["service_ids"] = sitting["ids"]
+            series["service_name"] = sitting["name"]
+        except BookingError:                    # a service taken off the list
+            series["service_ids"] = [series["service_id"]]
+            series["service_name"] = series["service_id"]
         series["time"] = sched.friendly(series["start_min"])
         series["weekday"] = date.fromisoformat(series["first_day"]).strftime("%A")
         series["every"] = ("every week" if series["every_weeks"] == 1

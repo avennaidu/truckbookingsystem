@@ -304,16 +304,19 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             raise BookingError("That is not a valid date.")
 
-    def _service_arg(self, query):
-        service_id = (query.get("service") or [""])[0]
-        service = self.store.service(service_id)
-        if not service:
-            raise BookingError("Please choose a service first.")
-        return service
+    def _sitting_arg(self, query):
+        """The services for one sitting, from ?service=a or ?service=a,b,c."""
+        picked = query.get("service") or query.get("services") or []
+        return self.store.sitting(self.store.resolve_services(",".join(picked)))
+
+    @staticmethod
+    def _services_in(data):
+        """The services out of a JSON body - a list, or one id."""
+        return data.get("services", data.get("service"))
 
     def api_days(self, query):
         """A month of days with a yes/no on whether anything is free."""
-        service = self._service_arg(query)
+        sitting = self._sitting_arg(query)
         start = self._day_arg(query, "from")
         count = min(int((query.get("days") or [42])[0]), 120)
         first, last = self.store.horizon()
@@ -324,7 +327,7 @@ class Handler(BaseHTTPRequestHandler):
             bookable = first <= day <= last
             slots = ([] if info["closed"] or not bookable
                      else self.store.available(day.isoformat(),
-                                               service["duration_min"]))
+                                               sitting["duration_min"]))
             days.append({
                 "day": day.isoformat(),
                 "dom": day.day,
@@ -335,21 +338,21 @@ class Handler(BaseHTTPRequestHandler):
                 "in_range": bookable,
                 "free": len(slots),
             })
-        self.json({"ok": True, "service": service, "days": days})
+        self.json({"ok": True, "service": sitting, "days": days})
 
     def api_slots(self, query):
-        service = self._service_arg(query)
+        sitting = self._sitting_arg(query)
         day = self._day_arg(query)
         info = self.store.day_info(day.isoformat())
-        starts = self.store.available(day.isoformat(), service["duration_min"])
-        self.json({"ok": True, "service": service, "day": day.isoformat(),
+        starts = self.store.available(day.isoformat(), sitting["duration_min"])
+        self.json({"ok": True, "service": sitting, "day": day.isoformat(),
                    "label": info["label"], "closed": info["closed"],
                    "reason": info["reason"], "holiday": info["holiday"],
                    "hours": (None if info["closed"] else
                              f"{sched.friendly(info['open_min'])} - "
                              f"{sched.friendly(info['close_min'])}"),
                    "slots": [{"start": s, "time": sched.friendly(s),
-                              "end": sched.friendly(s + service["duration_min"])}
+                              "end": sched.friendly(s + sitting["duration_min"])}
                              for s in starts]})
 
     def _client_cookie(self, token):
@@ -424,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         booking = self.store.create_booking(
             day=data.get("day"), start_min=int(data.get("start", -1)),
-            service_id=data.get("service"), customer_name=customer["name"],
+            services=self._services_in(data), customer_name=customer["name"],
             phone=customer["phone"], notes=data.get("notes", ""),
             source="online", customer_id=customer["id"])
         self.server.log(f"booked {booking['ref']} {booking['day']} "
@@ -444,15 +447,16 @@ class Handler(BaseHTTPRequestHandler):
         if not customer:
             return
         self.json({"ok": True, **self.store.plan_repeat(
-            data.get("service"), data.get("day"), int(data.get("start", -1)),
-            data.get("every_weeks", 2), data.get("times", 4))})
+            self._services_in(data), data.get("day"),
+            int(data.get("start", -1)), data.get("every_weeks", 2),
+            data.get("times", 4))})
 
     def api_repeat(self, data):
         customer = self.require_client()
         if not customer:
             return
         result = self.store.create_repeat(
-            customer["id"], data.get("service"), data.get("day"),
+            customer["id"], self._services_in(data), data.get("day"),
             int(data.get("start", -1)), data.get("every_weeks", 2),
             data.get("times", 4), notes=data.get("notes", ""))
         self.server.log(f"repeat for {customer['phone']}: "
@@ -553,7 +557,7 @@ class Handler(BaseHTTPRequestHandler):
     def api_admin_booking(self, data):
         booking = self.store.create_booking(
             day=data.get("day"), start_min=int(data.get("start", -1)),
-            service_id=data.get("service"), customer_name=data.get("name"),
+            services=self._services_in(data), customer_name=data.get("name"),
             phone=data.get("phone", ""), notes=data.get("notes", ""),
             source=data.get("source", "walk-in"), admin=True)
         self.json({"ok": True, "booking": booking})
