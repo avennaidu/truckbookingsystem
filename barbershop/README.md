@@ -1,9 +1,10 @@
 # Faded Studio by Jay — bookings
 
-A booking system for a one-chair barbershop: customers pick a service, a
-day and a time on their phone; Jay runs the day from a diary page. It is
-plain Python — `sqlite3` for storage, `http.server` for the web — so
-there is nothing to install beyond Python 3.11 or newer.
+A booking system for a one-chair barbershop. Customers register with
+their name and cellphone number, sign in on their phone, and book a
+service — once, or standing every couple of weeks. Jay runs the day from
+a diary page. It is plain Python — `sqlite3` for storage, `http.server`
+for the web — so there is nothing to install beyond Python 3.11 or newer.
 
 ```
 python -m barbershop serve            # http://localhost:8080
@@ -11,7 +12,7 @@ python -m barbershop serve            # http://localhost:8080
 
 | Page | Who it is for |
 | --- | --- |
-| `/` | customers — the price list, the calendar, the booking form |
+| `/` | customers — sign in, the price list, the calendar, their own appointments |
 | `/admin` | Jay — the day's chair, walk-ins, time off, prices, takings |
 
 On Windows, double-click `scripts/start_barbershop.bat` instead. Leave
@@ -26,15 +27,21 @@ for this year and next. **The admin PIN starts as `1234` — change it**
 
 **For customers**
 
+- An account, opened with a name, a cellphone number and a PIN of their
+  choosing. The number is the account name, so there is nothing to
+  remember. Signing in lasts two months on that phone.
 - The whole price list, grouped the way the board is, with the price and
-  how long the chair is held for.
+  how long the chair is held for. It shows before signing in, so people
+  can check prices without registering; booking needs an account.
 - A month calendar. Closed days and fully-booked days are dim, so nobody
   picks a Monday by mistake.
 - Only times that actually fit are offered: a 90-minute cut-and-colour
   stops being offered at 17:30 because the shop closes at 19:00.
-- A reference (`FSJ-XXXXX`) to quote at the door, and a "find or cancel"
-  box that takes the reference plus the mobile number the booking was
-  made on.
+- **Standing appointments** — the same cut, the same day of the week, the
+  same time, every 1 to 4 weeks, 2 to 12 times over. See below.
+- "My appointments": everything coming up with its reference
+  (`FSJ-XXXXX`) to quote at the door, cancel on each one, past visits
+  underneath, and their own name and PIN to change.
 
 **For Jay**
 
@@ -49,10 +56,32 @@ for this year and next. **The admin PIN starts as `1234` — change it**
 - Price list: change a price or a duration, switch a service off, add a
   new one. New bookings pick the change up immediately; bookings already
   in the diary keep the price they were made at.
+- Clients — everyone who has registered, with their number as a
+  tap-to-call link, how many visits and no-shows they have, and a PIN
+  reset for whoever has forgotten theirs.
 - Takings for any date range, from the appointments marked done.
 - Booking rules: how much notice online bookings need (30 minutes), how
   far apart slots start (15 minutes), how far ahead customers may book
   (60 days).
+
+## Standing appointments
+
+A customer picks the service, the first date and the time, then chooses
+how often (every week, or every 2, 3 or 4 weeks) and how many times (2 to
+12). Before anything is written the portal shows every date it would
+take, with the ones that are not free marked and why — closed that day,
+outside the hours, already taken.
+
+Confirming books the dates that are free and says plainly which ones were
+not, so the customer can arrange those separately rather than believing a
+booking exists that does not. A standing run reaches past the 60-day
+window a single booking may be made in — twelve fortnightly cuts is most
+of a year — which is the point of holding the slot.
+
+"Stop this repeat" cancels the appointments still to come and leaves
+anything already done alone. Individual dates in the run can be cancelled
+on their own, and Jay can move any one of them from the diary like any
+other appointment.
 
 ## Hours and durations
 
@@ -74,6 +103,19 @@ cut never runs into the next customer; a quick one just finishes early.
 Every other duration on the list is a first estimate — change any of them
 in Settings once real days show what they should be.
 
+## Accounts and the PIN
+
+Customer PINs are 4 to 8 digits, stored as salted PBKDF2-SHA256 hashes,
+never in the clear. A short PIN is easy to guess at, so sign-ins are
+rationed: six wrong tries on one number and that number is shut out for
+ten minutes. Changing a PIN signs every other phone out. Jay resets a
+forgotten PIN from the Clients tab, which also signs that customer out
+everywhere.
+
+There is no SMS in this build, so nothing is sent to verify a number and
+a forgotten PIN goes through Jay. If the shop later pays for an SMS
+gateway, a one-time code fits in the same sign-in route.
+
 ## Running it where customers can reach it
 
 The server listens on every interface, so:
@@ -82,9 +124,10 @@ The server listens on every interface, so:
   `http://<the laptop's IP>:8080/`. Reserve the laptop's IP on the router
   so the address stops changing.
 - **On the internet**, put it behind a reverse proxy that terminates
-  HTTPS (Caddy, nginx, a Cloudflare tunnel) and point a domain at it. The
-  admin PIN is the only lock on `/admin`, so do not expose it over plain
-  HTTP.
+  HTTPS (Caddy, nginx, a Cloudflare tunnel) and point a domain at it.
+  Customer PINs and session cookies cross the wire on every sign-in, and
+  the shop PIN is the only lock on `/admin`, so it must not be reachable
+  over plain HTTP.
 
 Back up `barbershop.db` — it is the whole diary. Copying the file while
 the server runs is safe.
@@ -105,9 +148,14 @@ python -m barbershop --db /path/to.db ...  # use another database file
 ```
 python -m pytest tests/test_barbershop_schedule.py \
                  tests/test_barbershop_store.py \
+                 tests/test_barbershop_clients.py \
                  tests/test_barbershop_web.py
 ```
 
 The tests cover the slot arithmetic, the booking rules (closing time,
-double bookings, blocked time, the notice period, cancellations) and the
-web layer end to end, including that the diary stays behind the PIN.
+double bookings, blocked time, the notice period, cancellations),
+accounts and standing appointments (PIN hashing, sessions, one customer
+never reaching another's bookings, repeats that skip a taken or closed
+date), and the web layer end to end — including that booking needs an
+account, that the diary stays behind the shop PIN, and that guessing at a
+PIN gets shut out.

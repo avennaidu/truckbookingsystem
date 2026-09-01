@@ -1,10 +1,15 @@
-"""The web server: a booking page for customers, a diary for Jay.
+"""The web server: a customer portal, and a diary for Jay.
 
     python -m barbershop serve --port 8080
 
 Everything is JSON over a handful of routes; the two pages in static/ do
-the rest in the browser. Admin routes sit behind a PIN - Jay logs in once
-on his phone and the session cookie keeps him there.
+the rest in the browser.
+
+Two different sign-ins share the server. Customers hold an account (name,
+cellphone, PIN) and get a cookie that lasts two months, which is what
+lets the portal show them their own appointments and set up a repeat.
+Jay's diary sits behind the shop PIN on a separate cookie; the two never
+mix.
 """
 
 import json
@@ -19,11 +24,43 @@ from urllib.parse import parse_qs, urlparse
 
 from . import SHOP, __version__
 from . import schedule as sched
-from .store import BookingError, Store
+from .store import SESSION_DAYS, BookingError, Store
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "faded_admin"
+CLIENT_COOKIE = "faded_client"
 MAX_BODY = 64 * 1024
+
+# A four digit PIN is short, so sign-in attempts are rationed per number.
+SIGNIN_TRIES = 6
+SIGNIN_COOLDOWN = 10 * 60
+
+
+class Throttle:
+    """Counts failed sign-ins per phone number and holds the door shut."""
+
+    def __init__(self, tries=SIGNIN_TRIES, cooldown=SIGNIN_COOLDOWN):
+        self.tries = tries
+        self.cooldown = cooldown
+        self._fails = {}
+        self._lock = threading.Lock()
+
+    def blocked(self, key, now):
+        with self._lock:
+            count, until = self._fails.get(key, (0, 0))
+            if until and until < now:
+                del self._fails[key]
+                return False
+            return count >= self.tries
+
+    def failed(self, key, now):
+        with self._lock:
+            count, until = self._fails.get(key, (0, 0))
+            self._fails[key] = (count + 1, now + self.cooldown)
+
+    def passed(self, key):
+        with self._lock:
+            self._fails.pop(key, None)
 
 
 class Sessions:
@@ -61,6 +98,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"FadedStudio/{__version__}"
     store: Store
     sessions: Sessions
+    throttle: "Throttle"
 
     # ------------------------------------------------------------- plumbing
 
@@ -101,10 +139,22 @@ class Handler(BaseHTTPRequestHandler):
             raise BookingError("Could not read that request.")
         return data
 
-    def token(self):
-        cookies = SimpleCookie(self.headers.get("Cookie", ""))
-        morsel = cookies.get(COOKIE)
+    def cookie(self, name):
+        morsel = SimpleCookie(self.headers.get("Cookie", "")).get(name)
         return morsel.value if morsel else None
+
+    def token(self):
+        return self.cookie(COOKIE)
+
+    def client(self):
+        """The signed-in customer, or None."""
+        return self.store.session_customer(self.cookie(CLIENT_COOKIE))
+
+    def require_client(self):
+        customer = self.client()
+        if not customer:
+            self.fail("Please sign in to book.", 401)
+        return customer
 
     def is_admin(self):
         import time
@@ -137,6 +187,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_days(query)
             if path == "/api/slots":
                 return self.api_slots(query)
+            if path == "/api/me":
+                return self.api_me()
             if path == "/api/admin/session":
                 return self.json({"ok": True, "signed_in": self.is_admin()})
             if path == "/api/admin/day":
@@ -152,6 +204,8 @@ class Handler(BaseHTTPRequestHandler):
                                   "services": self.store.services(active_only=False)})
             if path == "/api/admin/calendar":
                 return self.api_admin_calendar(query)
+            if path == "/api/admin/clients":
+                return self.api_admin_clients(query)
             return self.fail("No such page.", 404)
         except BookingError as exc:
             return self.fail(str(exc))
@@ -165,12 +219,24 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         try:
             data = self.body()
+            if path == "/api/register":
+                return self.api_register(data)
+            if path == "/api/login":
+                return self.api_client_login(data)
+            if path == "/api/logout":
+                return self.api_client_logout()
+            if path == "/api/account":
+                return self.api_account(data)
             if path == "/api/book":
                 return self.api_book(data)
-            if path == "/api/lookup":
-                return self.api_lookup(data)
             if path == "/api/cancel":
                 return self.api_cancel(data)
+            if path == "/api/repeat/preview":
+                return self.api_repeat_preview(data)
+            if path == "/api/repeat":
+                return self.api_repeat(data)
+            if path == "/api/repeat/cancel":
+                return self.api_repeat_cancel(data)
             if path == "/api/admin/login":
                 return self.api_login(data)
             if path == "/api/admin/logout":
@@ -194,6 +260,7 @@ class Handler(BaseHTTPRequestHandler):
                 "new-service": self.api_admin_new_service,
                 "pin": self.api_admin_pin,
                 "settings": self.api_admin_settings,
+                "client-pin": self.api_admin_client_pin,
             }
             if action in handlers:
                 return handlers[action](data)
@@ -285,26 +352,120 @@ class Handler(BaseHTTPRequestHandler):
                               "end": sched.friendly(s + service["duration_min"])}
                              for s in starts]})
 
+    def _client_cookie(self, token):
+        return {"Set-Cookie": f"{CLIENT_COOKIE}={token}; Path=/; "
+                              f"Max-Age={SESSION_DAYS * 86400}; HttpOnly; "
+                              "SameSite=Lax"}
+
+    def api_register(self, data):
+        customer = self.store.register(data.get("name"), data.get("phone"),
+                                       data.get("pin"))
+        token = self.store.start_session(customer["id"])
+        self.server.log(f"new account {customer['phone']}")
+        self.json({"ok": True, "customer": customer},
+                  headers=self._client_cookie(token))
+
+    def api_client_login(self, data):
+        import time
+        phone = str(data.get("phone", ""))
+        key = "".join(c for c in phone if c.isdigit()) or phone
+        now = time.time()
+        if self.throttle.blocked(key, now):
+            return self.fail(
+                "Too many tries. Wait ten minutes, or phone the shop.", 429)
+        customer = self.store.sign_in(phone, data.get("pin"))
+        if not customer:
+            self.throttle.failed(key, now)
+            return self.fail("That number and PIN do not match.", 401)
+        self.throttle.passed(key)
+        token = self.store.start_session(customer["id"])
+        self.json({"ok": True, "customer": customer},
+                  headers=self._client_cookie(token))
+
+    def api_client_logout(self):
+        self.store.end_session(self.cookie(CLIENT_COOKIE))
+        self.json({"ok": True}, headers={
+            "Set-Cookie": f"{CLIENT_COOKIE}=; Path=/; Max-Age=0; HttpOnly;"
+                          " SameSite=Lax"})
+
+    def api_me(self):
+        """Everything the portal needs about whoever is signed in."""
+        customer = self.client()
+        if not customer:
+            return self.json({"ok": True, "signed_in": False})
+        self.json({
+            "ok": True, "signed_in": True, "customer": customer,
+            "upcoming": self.store.customer_bookings(customer["id"]),
+            "past": self.store.customer_bookings(customer["id"], upcoming=False,
+                                                 limit=10),
+            "repeats": self.store.series_for_customer(customer["id"]),
+        })
+
+    def api_account(self, data):
+        customer = self.require_client()
+        if not customer:
+            return
+        if "pin" in data:
+            if not self.store.sign_in(customer["phone"], data.get("old_pin")):
+                return self.fail("Your current PIN is not right.", 401)
+        updated = self.store.update_customer(
+            customer["id"], name=data.get("name"), pin=data.get("pin"))
+        if "pin" in data:
+            # A new PIN signs every other phone out, then signs this one in.
+            self.store.end_all_sessions(customer["id"])
+            token = self.store.start_session(customer["id"])
+            return self.json({"ok": True, "customer": updated},
+                             headers=self._client_cookie(token))
+        self.json({"ok": True, "customer": updated})
+
     def api_book(self, data):
+        customer = self.require_client()
+        if not customer:
+            return
         booking = self.store.create_booking(
             day=data.get("day"), start_min=int(data.get("start", -1)),
-            service_id=data.get("service"), customer_name=data.get("name"),
-            phone=data.get("phone"), notes=data.get("notes", ""),
-            source="online")
+            service_id=data.get("service"), customer_name=customer["name"],
+            phone=customer["phone"], notes=data.get("notes", ""),
+            source="online", customer_id=customer["id"])
         self.server.log(f"booked {booking['ref']} {booking['day']} "
                         f"{booking['time']} {booking['service_name']}")
         self.json({"ok": True, "booking": booking, "shop": SHOP})
 
-    def api_lookup(self, data):
-        booking = self.store.by_ref(data.get("ref"), data.get("phone"))
-        if not booking:
-            return self.fail("No booking matches that reference and number.", 404)
-        self.json({"ok": True, "booking": booking})
-
     def api_cancel(self, data):
-        booking = self.store.cancel_by_ref(data.get("ref"), data.get("phone"))
+        customer = self.require_client()
+        if not customer:
+            return
+        booking = self.store.cancel_own(customer["id"], data.get("id"))
         self.server.log(f"cancelled {booking['ref']}")
         self.json({"ok": True, "booking": booking})
+
+    def api_repeat_preview(self, data):
+        customer = self.require_client()
+        if not customer:
+            return
+        self.json({"ok": True, **self.store.plan_repeat(
+            data.get("service"), data.get("day"), int(data.get("start", -1)),
+            data.get("every_weeks", 2), data.get("times", 4))})
+
+    def api_repeat(self, data):
+        customer = self.require_client()
+        if not customer:
+            return
+        result = self.store.create_repeat(
+            customer["id"], data.get("service"), data.get("day"),
+            int(data.get("start", -1)), data.get("every_weeks", 2),
+            data.get("times", 4), notes=data.get("notes", ""))
+        self.server.log(f"repeat for {customer['phone']}: "
+                        f"{len(result['booked'])} booked, "
+                        f"{len(result['missed'])} not free")
+        self.json({"ok": True, **result})
+
+    def api_repeat_cancel(self, data):
+        customer = self.require_client()
+        if not customer:
+            return
+        self.json({"ok": True, **self.store.cancel_series(data.get("id"),
+                                                          customer["id"])})
 
     # ------------------------------------------------------------- admin API
 
@@ -373,6 +534,21 @@ class Handler(BaseHTTPRequestHandler):
                          "bookings": len(live),
                          "rand": sum(b["price"] for b in live)})
         self.json({"ok": True, "days": days})
+
+    def api_admin_clients(self, query):
+        if not self.require_admin():
+            return
+        self.json({"ok": True, "clients": self.store.customers(
+            (query.get("q") or [""])[0])})
+
+    def api_admin_client_pin(self, data):
+        """Jay resetting the PIN for a customer who has forgotten it."""
+        customer = self.store.customer(data.get("id"))
+        if not customer:
+            raise BookingError("No such account.")
+        self.store.update_customer(customer["id"], pin=data.get("pin"))
+        self.store.end_all_sessions(customer["id"])
+        self.json({"ok": True, "customer": customer})
 
     def api_admin_booking(self, data):
         booking = self.store.create_booking(
@@ -484,9 +660,11 @@ class Server(ThreadingHTTPServer):
     def __init__(self, address, store, quiet=False):
         self.store = store
         self.sessions = Sessions()
+        self.throttle = Throttle()
         self.quiet = quiet
         handler = type("BoundHandler", (Handler,),
-                       {"store": store, "sessions": self.sessions})
+                       {"store": store, "sessions": self.sessions,
+                        "throttle": self.throttle})
         super().__init__(address, handler)
 
     def log(self, message):

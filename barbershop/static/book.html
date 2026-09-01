@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Book with Faded Studio by Jay</title>
+<title>Faded Studio by Jay &middot; Book</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230a0a0c%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2218%22 text-anchor=%22middle%22 fill=%22%23d4a24c%22 font-family=%22serif%22%3EF%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/brand.css">
 </head>
@@ -20,83 +20,165 @@
 
   <div id="flash"></div>
 
-  <!-- confirmation ------------------------------------------------------ -->
-  <section id="done" class="card hidden">
-    <h2>You're booked</h2>
-    <div id="doneBody" class="stack"></div>
-    <div class="row" style="margin-top:14px">
-      <button class="ghost" onclick="location.reload()">Book another</button>
-    </div>
-  </section>
-
-  <div id="flow">
-    <!-- step 1: service -------------------------------------------------- -->
+  <!-- ================================================== signed out ===== -->
+  <div id="guest" class="hidden">
     <section class="card">
-      <h2><span class="step-no">1</span>Choose a service</h2>
-      <div id="menu" class="muted small">Loading the price list&hellip;</div>
-    </section>
+      <h2 id="gateTitle">Sign in</h2>
+      <p class="small muted" style="margin-top:-6px" id="gateBlurb">
+        Your cellphone number is your account. Sign in to book, to see your
+        next cut, or to set up a standing appointment.</p>
 
-    <!-- step 2: day ------------------------------------------------------ -->
-    <section id="stepDay" class="card hidden">
-      <h2><span class="step-no">2</span>Pick a day</h2>
-      <div class="cal-head">
-        <button class="small ghost" id="prevMonth">&#8592;</button>
-        <strong id="monthName"></strong>
-        <button class="small ghost" id="nextMonth">&#8594;</button>
+      <div id="regName" class="field hidden">
+        <label for="rName">Name</label>
+        <input id="rName" autocomplete="name" placeholder="Your name">
       </div>
-      <div class="cal" id="dowRow"></div>
-      <div class="cal" id="cal" style="margin-top:6px"></div>
-      <p class="small muted" style="margin:12px 0 0">
-        Tue&ndash;Sat 9am&ndash;7pm &middot; Sun &amp; public holidays 9am&ndash;6pm
-        &middot; closed Mondays. Dim days are closed or fully booked.
+      <div class="field">
+        <label for="rPhone">Cellphone number</label>
+        <input id="rPhone" type="tel" autocomplete="tel" placeholder="082 123 4567">
+      </div>
+      <div class="field">
+        <label for="rPin" id="pinLabel">PIN</label>
+        <input id="rPin" type="password" inputmode="numeric"
+               autocomplete="current-password" placeholder="4 numbers">
+      </div>
+      <button class="primary" id="gateGo" style="width:100%">Sign in</button>
+      <p class="small muted" style="margin-bottom:0;text-align:center">
+        <span id="gateSwapText">New here?</span>
+        <a href="#" id="gateSwap" class="gold">Create an account</a>
+      </p>
+      <p class="small muted" style="text-align:center;margin:6px 0 0">
+        Forgotten your PIN? Ask Jay to reset it &mdash;
+        <span id="gatePhone" class="gold"></span>
       </p>
     </section>
 
-    <!-- step 3: time ----------------------------------------------------- -->
-    <section id="stepTime" class="card hidden">
-      <h2><span class="step-no">3</span>Pick a time</h2>
-      <p id="dayLine" class="small muted" style="margin-top:-4px"></p>
-      <div id="slots" class="slots"></div>
-    </section>
-
-    <!-- step 4: details -------------------------------------------------- -->
-    <section id="stepYou" class="card hidden">
-      <h2><span class="step-no">4</span>Your details</h2>
-      <div id="summary" class="note" style="margin-bottom:14px"></div>
-      <div class="fields-2">
-        <div class="field">
-          <label for="name">Name</label>
-          <input id="name" autocomplete="name" placeholder="Your name">
-        </div>
-        <div class="field">
-          <label for="phone">Mobile number</label>
-          <input id="phone" type="tel" autocomplete="tel" placeholder="082 123 4567">
-        </div>
-      </div>
-      <div class="field">
-        <label for="notes">Anything Jay should know (optional)</label>
-        <input id="notes" placeholder="e.g. skin fade, number 2 on the sides">
-      </div>
-      <button class="primary" id="confirm" style="width:100%">Confirm booking</button>
+    <section class="card">
+      <h2>The price list</h2>
+      <div id="menuPeek" class="muted small">Loading&hellip;</div>
     </section>
   </div>
 
-  <!-- find a booking ----------------------------------------------------- -->
-  <section class="card">
-    <h2>Find or cancel a booking</h2>
-    <div class="fields-2">
-      <div class="field">
-        <label for="lref">Reference</label>
-        <input id="lref" placeholder="FSJ-XXXXX">
+  <!-- =================================================== signed in ===== -->
+  <div id="portal" class="hidden">
+    <section class="card">
+      <div class="spread">
+        <div>
+          <div class="gold" style="letter-spacing:2px;text-transform:uppercase;
+            font-size:12px">Signed in</div>
+          <strong id="meName"></strong>
+          <div class="small muted" id="mePhone"></div>
+        </div>
+        <button class="small ghost" id="signout">Sign out</button>
       </div>
-      <div class="field">
-        <label for="lphone">Mobile number</label>
-        <input id="lphone" type="tel" placeholder="082 123 4567">
+    </section>
+
+    <!-- my appointments -------------------------------------------------- -->
+    <section class="card">
+      <h2>My appointments</h2>
+      <div id="mine"></div>
+      <div id="myRepeats"></div>
+      <details style="margin-top:12px">
+        <summary class="small muted" style="cursor:pointer">Past visits</summary>
+        <div id="myPast" style="margin-top:10px"></div>
+      </details>
+    </section>
+
+    <!-- confirmation ----------------------------------------------------- -->
+    <section id="done" class="card hidden">
+      <h2>You're booked</h2>
+      <div id="doneBody" class="stack"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="ghost" id="bookMore">Book something else</button>
       </div>
+    </section>
+
+    <div id="flow">
+      <!-- step 1: service ------------------------------------------------ -->
+      <section class="card">
+        <h2><span class="step-no">1</span>Choose a service</h2>
+        <div id="menu" class="muted small">Loading the price list&hellip;</div>
+      </section>
+
+      <!-- step 2: day ---------------------------------------------------- -->
+      <section id="stepDay" class="card hidden">
+        <h2><span class="step-no">2</span>Pick a day</h2>
+        <div class="cal-head">
+          <button class="small ghost" id="prevMonth">&#8592;</button>
+          <strong id="monthName"></strong>
+          <button class="small ghost" id="nextMonth">&#8594;</button>
+        </div>
+        <div class="cal" id="dowRow"></div>
+        <div class="cal" id="cal" style="margin-top:6px"></div>
+        <p class="small muted" style="margin:12px 0 0">
+          Tue&ndash;Sat 9am&ndash;7pm &middot; Sun &amp; public holidays
+          9am&ndash;6pm &middot; closed Mondays. Dim days are closed or full.
+        </p>
+      </section>
+
+      <!-- step 3: time --------------------------------------------------- -->
+      <section id="stepTime" class="card hidden">
+        <h2><span class="step-no">3</span>Pick a time</h2>
+        <p id="dayLine" class="small muted" style="margin-top:-4px"></p>
+        <div id="slots" class="slots"></div>
+      </section>
+
+      <!-- step 4: once or every -------------------------------------------- -->
+      <section id="stepWhen" class="card hidden">
+        <h2><span class="step-no">4</span>Once, or every time?</h2>
+        <div id="summary" class="note" style="margin-bottom:14px"></div>
+        <div class="row" style="margin-bottom:12px">
+          <button id="modeOnce" class="on">Just this once</button>
+          <button id="modeRepeat">Book it standing</button>
+        </div>
+
+        <div id="repeatBox" class="hidden">
+          <p class="small muted" style="margin-top:0">Same service, same day of
+            the week, same time &mdash; booked ahead so the chair is always
+            yours.</p>
+          <div class="fields-2">
+            <div class="field">
+              <label for="every">How often</label>
+              <select id="every">
+                <option value="1">Every week</option>
+                <option value="2" selected>Every 2 weeks</option>
+                <option value="3">Every 3 weeks</option>
+                <option value="4">Every 4 weeks</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="times">How many</label>
+              <select id="times"></select>
+            </div>
+          </div>
+          <div id="plan" class="stack" style="margin-bottom:12px"></div>
+        </div>
+
+        <div class="field">
+          <label for="notes">Anything Jay should know (optional)</label>
+          <input id="notes" placeholder="e.g. skin fade, number 2 on the sides">
+        </div>
+        <button class="primary" id="confirm" style="width:100%">Confirm booking</button>
+      </section>
     </div>
-    <div class="row"><button id="lookup">Find it</button></div>
-    <div id="found" class="stack" style="margin-top:12px"></div>
-  </section>
+
+    <!-- account ---------------------------------------------------------- -->
+    <section class="card">
+      <h2>My details</h2>
+      <div class="field">
+        <label for="aName">Name</label>
+        <input id="aName">
+      </div>
+      <button id="aSaveName">Save name</button>
+      <div class="rule" style="max-width:100%"></div>
+      <div class="fields-2">
+        <div class="field"><label for="aOldPin">Current PIN</label>
+          <input id="aOldPin" type="password" inputmode="numeric"></div>
+        <div class="field"><label for="aNewPin">New PIN</label>
+          <input id="aNewPin" type="password" inputmode="numeric"></div>
+      </div>
+      <button id="aSavePin">Change PIN</button>
+    </section>
+  </div>
 
   <footer>
     <div class="gold" style="letter-spacing:2px">JAY PROFESSIONAL BARBER</div>
@@ -110,16 +192,16 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const state = { services: [], service: null, day: null, start: null,
-                month: null, shop: null, days: {} };
+                month: null, shop: null, me: null, mode: "once" };
 
+function escape(text) {
+  return String(text ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 function flash(message, kind = "bad") {
   $("flash").innerHTML = message
     ? `<div class="note ${kind}" style="margin-bottom:14px">${escape(message)}</div>` : "";
   if (message) window.scrollTo({ top: 0, behavior: "smooth" });
-}
-function escape(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 async function api(path, body) {
   const options = body
@@ -128,36 +210,183 @@ async function api(path, body) {
     : {};
   const response = await fetch(path, options);
   const data = await response.json().catch(() => ({ ok: false,
-    error: "The shop's booking page is not answering. Please phone instead." }));
+    error: "The booking page is not answering. Please phone the shop." }));
+  if (response.status === 401 && state.me && !/PIN/.test(data.error || "")) {
+    showGuest();                       // the session ran out while we sat here
+  }
   if (!data.ok) throw new Error(data.error || "Something went wrong.");
   return data;
 }
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1)
   .padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-/* ------------------------------------------------------------ step 1 --- */
+/* ============================================================ accounts === */
 
-async function loadMenu() {
-  const { services } = await api("/api/services");
-  state.services = services;
+let registering = false;
+
+function swapGate(event) {
+  if (event) event.preventDefault();
+  registering = !registering;
+  $("gateTitle").textContent = registering ? "Create an account" : "Sign in";
+  $("gateGo").textContent = registering ? "Create my account" : "Sign in";
+  $("regName").classList.toggle("hidden", !registering);
+  $("pinLabel").textContent = registering ? "Choose a PIN (4 to 8 numbers)" : "PIN";
+  $("rPin").setAttribute("autocomplete",
+    registering ? "new-password" : "current-password");
+  $("gateSwapText").textContent = registering ? "Already booked here before?" : "New here?";
+  $("gateSwap").textContent = registering ? "Sign in" : "Create an account";
+  flash("");
+}
+
+async function gateGo() {
+  try {
+    if (registering) {
+      await api("/api/register", { name: $("rName").value,
+        phone: $("rPhone").value, pin: $("rPin").value });
+    } else {
+      await api("/api/login", { phone: $("rPhone").value, pin: $("rPin").value });
+    }
+    $("rPin").value = "";
+    flash("");
+    await loadMe();
+  } catch (error) { flash(error.message); }
+}
+
+function showGuest() {
+  state.me = null;
+  $("portal").classList.add("hidden");
+  $("guest").classList.remove("hidden");
+}
+
+async function loadMe() {
+  const data = await api("/api/me");
+  if (!data.signed_in) { showGuest(); return; }
+  state.me = data.customer;
+  $("guest").classList.add("hidden");
+  $("portal").classList.remove("hidden");
+  $("meName").textContent = data.customer.name;
+  $("mePhone").textContent = data.customer.phone;
+  $("aName").value = data.customer.name;
+  renderMine(data);
+  if (!state.services.length) await loadMenu();
+}
+
+function renderMine(data) {
+  $("mine").innerHTML = data.upcoming.length ? data.upcoming.map((b) => `
+    <div class="appt">
+      <div class="when">${escape(b.time)}<div class="small muted"
+        style="font-weight:400">${escape(b.end_time)}</div></div>
+      <div class="who">
+        <div><strong>${escape(b.date_label)}</strong>
+          ${b.repeat ? `<span class="tag live">repeat</span>` : ""}</div>
+        <div class="sub">${escape(b.service_name)} &middot; R${b.price}
+          &middot; ${escape(b.ref)}</div>
+        ${b.notes ? `<div class="sub">&ldquo;${escape(b.notes)}&rdquo;</div>` : ""}
+        <div class="row" style="margin-top:8px">
+          <button class="small danger" data-cancel="${b.id}">Cancel</button>
+        </div>
+      </div>
+    </div>`).join("")
+    : `<p class="muted small">Nothing booked yet - pick a service below.</p>`;
+
+  $("myRepeats").innerHTML = data.repeats.filter((r) => r.remaining.length)
+    .map((r) => `
+      <div class="appt">
+        <div class="when">${escape(r.time)}</div>
+        <div class="who">
+          <div><strong>${escape(r.service_name)}</strong>
+            <span class="tag live">standing</span></div>
+          <div class="sub">${escape(r.weekday)}s, ${escape(r.every)} &middot;
+            ${r.remaining.length} still to come &middot; next
+            ${escape(r.remaining[0].date_label)}</div>
+          <div class="row" style="margin-top:8px">
+            <button class="small ghost" data-stop="${r.id}">Stop this repeat</button>
+          </div>
+        </div>
+      </div>`).join("");
+
+  $("myPast").innerHTML = data.past.length ? data.past.map((b) => `
+    <div class="spread small" style="padding:5px 0">
+      <span>${escape(b.date_label)} &middot; ${escape(b.service_name)}</span>
+      <span class="tag ${b.status === "completed" ? "done" : "gone"}">${
+        escape(b.status.replace("_", " "))}</span>
+    </div>`).join("") : `<p class="muted small">Nothing yet.</p>`;
+
+  $("mine").querySelectorAll("[data-cancel]").forEach((button) => {
+    button.onclick = () => cancelBooking(Number(button.dataset.cancel));
+  });
+  $("myRepeats").querySelectorAll("[data-stop]").forEach((button) => {
+    button.onclick = () => stopRepeat(Number(button.dataset.stop));
+  });
+}
+
+async function cancelBooking(id) {
+  if (!window.confirm("Cancel this appointment?")) return;
+  try {
+    await api("/api/cancel", { id });
+    flash("Cancelled. The slot is back on the board.", "good");
+    await loadMe();
+    if (state.service && state.day) chooseDay(state.day);
+  } catch (error) { flash(error.message); }
+}
+
+async function stopRepeat(id) {
+  if (!window.confirm("Stop this standing appointment? The ones still to " +
+                      "come will be cancelled.")) return;
+  try {
+    const { cancelled } = await api("/api/repeat/cancel", { id });
+    flash(`Stopped - ${cancelled} appointment${cancelled === 1 ? "" : "s"} ` +
+          "cancelled.", "good");
+    await loadMe();
+  } catch (error) { flash(error.message); }
+}
+
+async function saveName() {
+  try {
+    await api("/api/account", { name: $("aName").value });
+    flash("Saved.", "good");
+    await loadMe();
+  } catch (error) { flash(error.message); }
+}
+
+async function savePin() {
+  try {
+    await api("/api/account", { old_pin: $("aOldPin").value,
+                                pin: $("aNewPin").value });
+    $("aOldPin").value = $("aNewPin").value = "";
+    flash("PIN changed. Any other phone you were signed in on is signed out.",
+          "good");
+  } catch (error) { flash(error.message); }
+}
+
+/* ============================================================== booking === */
+
+function menuHtml(services, clickable) {
   const groups = [];
   for (const service of services) {
     let group = groups.find((g) => g.name === service.category);
     if (!group) groups.push(group = { name: service.category, items: [] });
     group.items.push(service);
   }
-  $("menu").innerHTML = groups.map((group) => `
+  return groups.map((group) => `
     <div class="cat-title">${escape(group.name)}</div>
     ${group.items.map((s) => `
-      <button class="service" data-id="${escape(s.id)}">
+      <${clickable ? "button" : "div"} class="service"
+          ${clickable ? `data-id="${escape(s.id)}"` : ""}>
         <span class="who">
           <span class="name">${escape(s.name)}</span><br>
           <span class="meta">${s.duration_min} min${
             s.note ? " &middot; " + escape(s.note) : ""}</span>
         </span>
         <span class="price">R${s.price}</span>
-      </button>`).join("")}
+      </${clickable ? "button" : "div"}>`).join("")}
   `).join("");
+}
+
+async function loadMenu() {
+  const { services } = await api("/api/services");
+  state.services = services;
+  $("menu").innerHTML = menuHtml(services, true);
   $("menu").querySelectorAll(".service").forEach((button) => {
     button.onclick = () => chooseService(button.dataset.id);
   });
@@ -166,19 +395,17 @@ async function loadMenu() {
 function chooseService(id) {
   state.service = state.services.find((s) => s.id === id);
   state.day = state.start = null;
-  document.querySelectorAll(".service").forEach((b) =>
+  $("menu").querySelectorAll(".service").forEach((b) =>
     b.classList.toggle("on", b.dataset.id === id));
   $("stepDay").classList.remove("hidden");
   $("stepTime").classList.add("hidden");
-  $("stepYou").classList.add("hidden");
+  $("stepWhen").classList.add("hidden");
   flash("");
   const today = new Date(state.shop.today + "T00:00:00");
   state.month = new Date(today.getFullYear(), today.getMonth(), 1);
   drawMonth();
   $("stepDay").scrollIntoView({ behavior: "smooth", block: "start" });
 }
-
-/* ------------------------------------------------------------ step 2 --- */
 
 async function drawMonth() {
   const month = state.month;
@@ -187,12 +414,10 @@ async function drawMonth() {
   $("dowRow").innerHTML = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     .map((d) => `<div class="dow">${d}</div>`).join("");
   const lastDom = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const first = iso(month);
   $("cal").innerHTML = `<div class="muted small"
       style="grid-column:1/-1">Checking the diary&hellip;</div>`;
   const { days } = await api(`/api/days?service=${encodeURIComponent(
-    state.service.id)}&from=${first}&days=${lastDom}`);
-  days.forEach((d) => { state.days[d.day] = d; });
+    state.service.id)}&from=${iso(month)}&days=${lastDom}`);
 
   const lead = (new Date(month.getFullYear(), month.getMonth(), 1).getDay() + 6) % 7;
   const cells = Array.from({ length: lead }, () =>
@@ -206,8 +431,7 @@ async function drawMonth() {
         : (day.free ? `${day.free} free` : "Fully booked"));
     cells.push(`<button class="${classes}" data-day="${day.day}"
         ${free ? "" : "disabled"} title="${escape(title)}">
-        <span>${day.dom}</span>
-        ${free ? `<span class="dot"></span>` : ""}
+        <span>${day.dom}</span>${free ? `<span class="dot"></span>` : ""}
       </button>`);
   }
   $("cal").innerHTML = cells.join("");
@@ -226,15 +450,13 @@ function shiftMonth(step) {
   drawMonth();
 }
 
-/* ------------------------------------------------------------ step 3 --- */
-
 async function chooseDay(day) {
   state.day = day;
   state.start = null;
-  document.querySelectorAll("[data-day]").forEach((b) =>
+  $("cal").querySelectorAll("[data-day]").forEach((b) =>
     b.classList.toggle("on", b.dataset.day === day));
   $("stepTime").classList.remove("hidden");
-  $("stepYou").classList.add("hidden");
+  $("stepWhen").classList.add("hidden");
   $("slots").innerHTML = `<span class="muted small">Loading times&hellip;</span>`;
   const data = await api(`/api/slots?service=${encodeURIComponent(
     state.service.id)}&day=${day}`);
@@ -248,116 +470,173 @@ async function chooseDay(day) {
   $("slots").innerHTML = data.slots.map((slot) =>
     `<button class="slot" data-start="${slot.start}">${slot.time}</button>`).join("");
   $("slots").querySelectorAll("[data-start]").forEach((button) => {
-    button.onclick = () => chooseSlot(Number(button.dataset.start), button.textContent);
+    button.onclick = () => chooseSlot(Number(button.dataset.start),
+                                      button.textContent.trim());
   });
   $("stepTime").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function chooseSlot(start, label) {
   state.start = start;
-  document.querySelectorAll("[data-start]").forEach((b) =>
+  $("slots").querySelectorAll("[data-start]").forEach((b) =>
     b.classList.toggle("on", Number(b.dataset.start) === start));
-  const day = new Date(state.day + "T00:00:00").toLocaleDateString("en-ZA",
-    { weekday: "long", day: "numeric", month: "long" });
+  const when = new Date(state.day + "T00:00:00");
   $("summary").innerHTML = `<strong class="gold">${escape(state.service.name)}</strong>
     &middot; R${state.service.price} &middot; ${state.service.duration_min} min<br>
-    ${escape(day)} at ${escape(label.trim())}`;
-  $("stepYou").classList.remove("hidden");
-  $("stepYou").scrollIntoView({ behavior: "smooth", block: "start" });
+    ${escape(when.toLocaleDateString("en-ZA",
+      { weekday: "long", day: "numeric", month: "long" }))} at ${escape(label)}`;
+  $("stepWhen").classList.remove("hidden");
+  setMode(state.mode);
+  $("stepWhen").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/* ------------------------------------------------------------ step 4 --- */
+/* ------------------------------------------------------------- repeats --- */
+
+function setMode(mode) {
+  state.mode = mode;
+  $("modeOnce").classList.toggle("on", mode === "once");
+  $("modeRepeat").classList.toggle("on", mode === "repeat");
+  $("repeatBox").classList.toggle("hidden", mode !== "repeat");
+  $("confirm").textContent = mode === "once"
+    ? "Confirm booking" : "Book these appointments";
+  if (mode === "repeat") previewRepeat();
+}
+
+async function previewRepeat() {
+  if (!state.service || !state.day || state.start === null) return;
+  $("plan").innerHTML = `<span class="muted small">Checking the dates&hellip;</span>`;
+  try {
+    const data = await api("/api/repeat/preview", {
+      service: state.service.id, day: state.day, start: state.start,
+      every_weeks: Number($("every").value), times: Number($("times").value) });
+    const rows = data.plan.map((entry) => `
+      <div class="spread small" style="padding:4px 0">
+        <span>${entry.ok ? "" : "<span class='muted'>"}${
+          escape(entry.date_label)}${entry.ok ? "" : "</span>"}</span>
+        <span class="tag ${entry.ok ? "live" : "gone"}">${
+          entry.ok ? escape(entry.time) : escape(entry.reason)}</span>
+      </div>`).join("");
+    $("plan").innerHTML = `<div class="note ${data.free ? "" : "bad"}">
+        ${data.free} of ${data.plan.length} dates are free.
+        ${data.free < data.plan.length
+          ? "The rest stay open - book those separately, or try another time."
+          : ""}</div>${rows}`;
+    $("confirm").disabled = data.free === 0;
+  } catch (error) {
+    $("plan").innerHTML = `<div class="note bad">${escape(error.message)}</div>`;
+    $("confirm").disabled = true;
+  }
+}
+
+/* ------------------------------------------------------------- confirm --- */
 
 async function confirm() {
-  const button = $("confirm");
-  button.disabled = true;
+  $("confirm").disabled = true;
   try {
-    const { booking } = await api("/api/book", {
-      day: state.day, start: state.start, service: state.service.id,
-      name: $("name").value, phone: $("phone").value, notes: $("notes").value,
-    });
-    $("flow").classList.add("hidden");
-    $("done").classList.remove("hidden");
-    $("doneBody").innerHTML = `
-      <div class="note good">Keep this reference -
-        <strong>${escape(booking.ref)}</strong></div>
-      <div class="spread"><span class="muted">Service</span>
-        <span>${escape(booking.service_name)}</span></div>
-      <div class="spread"><span class="muted">When</span>
-        <span>${escape(booking.date_label)}, ${escape(booking.time)}
-        &ndash; ${escape(booking.end_time)}</span></div>
-      <div class="spread"><span class="muted">Price</span>
-        <span class="gold">R${booking.price}</span></div>
-      <div class="spread"><span class="muted">Name</span>
-        <span>${escape(booking.customer_name)}</span></div>
-      <p class="small muted">${escape(state.shop.address)}.
-        Running late or need to change it? Call ${escape(state.shop.phone)},
-        or cancel below with your reference.</p>`;
+    if (state.mode === "once") {
+      const { booking } = await api("/api/book", {
+        day: state.day, start: state.start, service: state.service.id,
+        notes: $("notes").value });
+      showDone(`
+        <div class="note good">Keep this reference -
+          <strong>${escape(booking.ref)}</strong></div>
+        <div class="spread"><span class="muted">Service</span>
+          <span>${escape(booking.service_name)}</span></div>
+        <div class="spread"><span class="muted">When</span>
+          <span>${escape(booking.date_label)}, ${escape(booking.time)}
+          &ndash; ${escape(booking.end_time)}</span></div>
+        <div class="spread"><span class="muted">Price</span>
+          <span class="gold">R${booking.price}</span></div>`);
+    } else {
+      const data = await api("/api/repeat", {
+        service: state.service.id, day: state.day, start: state.start,
+        every_weeks: Number($("every").value), times: Number($("times").value),
+        notes: $("notes").value });
+      showDone(`
+        <div class="note good">${data.booked.length} appointments booked -
+          ${escape(data.series.service_name)}, ${escape(data.series.weekday)}s
+          at ${escape(data.series.time)}, ${escape(data.series.every)}.</div>
+        ${data.booked.map((b) => `<div class="spread small">
+          <span>${escape(b.date_label)}</span>
+          <span class="gold">${escape(b.ref)}</span></div>`).join("")}
+        ${data.missed.length ? `<div class="note bad" style="margin-top:10px">
+          Not free, so not booked: ${data.missed.map((m) =>
+            escape(m.date_label)).join(", ")}. Book those days separately.
+          </div>` : ""}`);
+    }
     flash("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    await loadMe();
   } catch (error) {
     flash(error.message);
-    if (/taken|passed/i.test(error.message) && state.day) chooseDay(state.day);
+    if (/taken|passed|went/i.test(error.message) && state.day) {
+      chooseDay(state.day);
+    }
   } finally {
-    button.disabled = false;
+    $("confirm").disabled = false;
   }
 }
 
-/* --------------------------------------------------------- find/cancel --- */
-
-async function lookup() {
-  $("found").innerHTML = "";
-  try {
-    const { booking } = await api("/api/lookup",
-      { ref: $("lref").value, phone: $("lphone").value });
-    const live = booking.status === "booked" || booking.status === "confirmed";
-    $("found").innerHTML = `
-      <div class="appt">
-        <div class="when">${escape(booking.time)}</div>
-        <div class="who">
-          <div>${escape(booking.service_name)} &middot; R${booking.price}</div>
-          <div class="sub">${escape(booking.date_label)} &middot;
-            ${escape(booking.customer_name)}</div>
-        </div>
-        <span class="tag ${live ? "live" : "gone"}">${escape(
-          booking.status.replace("_", " "))}</span>
-      </div>
-      ${live ? `<button class="danger" id="cancel">Cancel this booking</button>` : ""}`;
-    if (live) $("cancel").onclick = () => cancel();
-  } catch (error) {
-    $("found").innerHTML = `<div class="note bad">${escape(error.message)}</div>`;
-  }
+function showDone(html) {
+  $("doneBody").innerHTML = html + `
+    <p class="small muted">${escape(state.shop.address)}. Running late or need
+      to change it? Call ${escape(state.shop.phone)}.</p>`;
+  $("flow").classList.add("hidden");
+  $("done").classList.remove("hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-async function cancel() {
-  if (!window.confirm("Cancel this appointment?")) return;
-  try {
-    await api("/api/cancel", { ref: $("lref").value, phone: $("lphone").value });
-    $("found").innerHTML = `<div class="note good">Cancelled. The slot is
-      back on the board - book again whenever you like.</div>`;
-    if (state.service && state.day) chooseDay(state.day);
-  } catch (error) {
-    $("found").innerHTML = `<div class="note bad">${escape(error.message)}</div>`;
-  }
-}
+/* ============================================================== start ==== */
 
-/* ------------------------------------------------------------------------ */
+$("gateSwap").onclick = swapGate;
+$("gateGo").onclick = gateGo;
+$("rPin").onkeydown = (e) => { if (e.key === "Enter") gateGo(); };
+$("signout").onclick = async () => {
+  await fetch("/api/logout", { method: "POST" });
+  location.reload();
+};
+$("prevMonth").onclick = () => shiftMonth(-1);
+$("nextMonth").onclick = () => shiftMonth(1);
+$("modeOnce").onclick = () => setMode("once");
+$("modeRepeat").onclick = () => setMode("repeat");
+$("every").onchange = previewRepeat;
+$("times").onchange = previewRepeat;
+$("confirm").onclick = confirm;
+$("aSaveName").onclick = saveName;
+$("aSavePin").onclick = savePin;
+$("bookMore").onclick = () => {
+  $("done").classList.add("hidden");
+  $("flow").classList.remove("hidden");
+  $("stepDay").classList.add("hidden");
+  $("stepTime").classList.add("hidden");
+  $("stepWhen").classList.add("hidden");
+  $("menu").querySelectorAll(".service").forEach((b) => b.classList.remove("on"));
+  state.service = state.day = null;
+  state.start = null;
+};
 
 (async function start() {
+  $("times").innerHTML = Array.from({ length: 11 }, (_, i) => i + 2)
+    .map((n) => `<option value="${n}"${n === 4 ? " selected" : ""}>${n} times</option>`)
+    .join("");
   try {
     const data = await api("/api/shop");
     state.shop = { ...data.shop, today: data.today,
                    first_day: data.first_day, last_day: data.last_day };
     $("shopPhone").textContent = data.shop.phone;
+    $("gatePhone").textContent = data.shop.phone;
     $("shopAddress").textContent = data.shop.address;
-    await loadMenu();
+    const { services } = await api("/api/services");
+    state.services = services;
+    $("menuPeek").innerHTML = menuHtml(services, false);
+    $("menu").innerHTML = menuHtml(services, true);
+    $("menu").querySelectorAll(".service").forEach((button) => {
+      button.onclick = () => chooseService(button.dataset.id);
+    });
+    await loadMe();
   } catch (error) {
     flash(error.message);
+    showGuest();
   }
-  $("prevMonth").onclick = () => shiftMonth(-1);
-  $("nextMonth").onclick = () => shiftMonth(1);
-  $("confirm").onclick = confirm;
-  $("lookup").onclick = lookup;
 })();
 </script>
 </body>

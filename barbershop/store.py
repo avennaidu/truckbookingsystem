@@ -5,14 +5,22 @@ may never overlap. `create_booking` checks that inside the same
 transaction that writes the row, so two customers tapping "Book" on the
 same slot at the same moment cannot both win.
 
+Customers hold an account - a name, a cellphone number and a PIN - so the
+portal can show them their own appointments and let them set up a repeat
+(the same cut, same time, every two weeks). Their PIN is stored as a
+salted PBKDF2 hash; the phone number is the account name.
+
 The connection is shared across the web server's threads (writes are a
 handful a day) and every call takes `self._lock`, so sqlite only ever sees
 one statement at a time.
 """
 
+import hashlib
+import hmac
+import os
 import random
+import secrets
 import sqlite3
-import string
 import threading
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -24,6 +32,11 @@ from .services import seed_rows
 LIVE = ("booked", "confirmed")
 FINISHED = ("completed", "cancelled", "no_show")
 ALL_STATUSES = LIVE + FINISHED
+
+MAX_REPEATS = 12                 # a repeat books at most a year of a weekly cut
+REPEAT_EVERY = (1, 2, 3, 4)      # weekly, fortnightly, every three, monthly
+SESSION_DAYS = 60                # how long a customer stays signed in
+PIN_ROUNDS = 200_000
 
 DEFAULT_SETTINGS = {
     "admin_pin": "1234",
@@ -83,6 +96,31 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS customers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    phone      TEXT NOT NULL UNIQUE,
+    pin_hash   TEXT NOT NULL,
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS client_sessions (
+    token       TEXT PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+    expires_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS series (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+    service_id  TEXT NOT NULL,
+    first_day   TEXT NOT NULL,
+    start_min   INTEGER NOT NULL,
+    every_weeks INTEGER NOT NULL,
+    times       INTEGER NOT NULL,
+    notes       TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'active',
+    created_at  TEXT NOT NULL
+);
 """
 
 
@@ -97,6 +135,30 @@ def normalise_phone(raw: str) -> str:
     if text.startswith("+"):
         return "+" + "".join(keep)
     return "".join(keep)
+
+
+def hash_pin(pin: str) -> str:
+    """Salted PBKDF2 - a four digit PIN is short, so never store it plainly."""
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", str(pin).encode(), salt, PIN_ROUNDS)
+    return f"pbkdf2${PIN_ROUNDS}${salt.hex()}${digest.hex()}"
+
+
+def check_pin(pin: str, stored: str) -> bool:
+    try:
+        _, rounds, salt, digest = str(stored).split("$")
+        candidate = hashlib.pbkdf2_hmac("sha256", str(pin).encode(),
+                                        bytes.fromhex(salt), int(rounds))
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(candidate.hex(), digest)
+
+
+def check_pin_format(pin: str) -> str:
+    pin = str(pin or "").strip()
+    if not pin.isdigit() or not (4 <= len(pin) <= 8):
+        raise BookingError("Your PIN has to be 4 to 8 numbers.")
+    return pin
 
 
 def make_ref() -> str:
@@ -116,10 +178,20 @@ class Store:
         self.tz = ZoneInfo(SHOP["timezone"])
         with self._lock:
             self.db.executescript(SCHEMA)
+            self._migrate()
             self._seed()
             self.db.commit()
 
     # ---------------------------------------------------------------- setup
+
+    def _migrate(self):
+        """Add columns a database made by an older version has not got."""
+        columns = {row["name"] for row in
+                   self.db.execute("PRAGMA table_info(bookings)")}
+        if "customer_id" not in columns:
+            self.db.execute("ALTER TABLE bookings ADD COLUMN customer_id INTEGER")
+        if "series_id" not in columns:
+            self.db.execute("ALTER TABLE bookings ADD COLUMN series_id INTEGER")
 
     def _seed(self):
         have = self.db.execute("SELECT COUNT(*) FROM services").fetchone()[0]
@@ -383,10 +455,13 @@ class Store:
         booking["end_time"] = sched.friendly(booking["end_min"])
         booking["date_label"] = date.fromisoformat(
             booking["day"]).strftime("%a %d %b %Y")
+        booking["repeat"] = bool(booking.get("series_id"))
+        booking["live"] = booking["status"] in LIVE
         return booking
 
     def create_booking(self, day, start_min, service_id, customer_name, phone,
-                       notes="", source="online", admin=False):
+                       notes="", source="online", admin=False,
+                       customer_id=None, series_id=None, ignore_horizon=False):
         service = self.service(service_id)
         if not service:
             raise BookingError("That service is not on the list any more.")
@@ -409,7 +484,7 @@ class Store:
         except ValueError:
             raise BookingError("That is not a valid date.")
         first, last = self.horizon()
-        if not admin and not (first <= as_date <= last):
+        if not admin and not ignore_horizon and not (first <= as_date <= last):
             raise BookingError(
                 f"Bookings open from {first.strftime('%d %b')} to "
                 f"{last.strftime('%d %b')}.")
@@ -451,12 +526,13 @@ class Store:
                 cur = self.db.execute(
                     "INSERT INTO bookings (ref, day, start_min, duration_min,"
                     " service_id, service_name, price, customer_name, phone,"
-                    " notes, status, source, created_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?)",
+                    " notes, status, source, created_at, customer_id, series_id)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?, ?, ?)",
                     (ref, day, start_min, duration, service["id"],
                      service["name"], service["price"], customer_name, phone,
                      str(notes or "").strip(), source,
-                     self.now().isoformat(timespec="seconds")))
+                     self.now().isoformat(timespec="seconds"),
+                     customer_id, series_id))
                 self.db.commit()
             except Exception:
                 self.db.rollback()
@@ -574,6 +650,323 @@ class Store:
                 self.db.rollback()
                 raise
         return self.booking(booking_id)
+
+    # ---------------------------------------------------------------- clients
+
+    def register(self, name, phone, pin):
+        """Open an account. The cellphone number is the account name."""
+        name = str(name or "").strip()
+        if len(name) < 2:
+            raise BookingError("Please give us your name.")
+        phone = normalise_phone(phone)
+        if len(phone) < 9:
+            raise BookingError("Please give the cellphone number you use.")
+        pin = check_pin_format(pin)
+        with self._lock:
+            if self.db.execute("SELECT 1 FROM customers WHERE phone = ?",
+                               (phone,)).fetchone():
+                raise BookingError(
+                    "That number already has an account - sign in instead, "
+                    "or ask Jay to reset your PIN.")
+            cur = self.db.execute(
+                "INSERT INTO customers (name, phone, pin_hash, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (name, phone, hash_pin(pin),
+                 self.now().isoformat(timespec="seconds")))
+            self.db.commit()
+        return self.customer(cur.lastrowid)
+
+    def sign_in(self, phone, pin):
+        """The account for this number and PIN, or None."""
+        row = self.customer_by_phone(phone)
+        if not row:
+            return None
+        with self._lock:
+            stored = self.db.execute(
+                "SELECT pin_hash FROM customers WHERE id = ?",
+                (row["id"],)).fetchone()["pin_hash"]
+        return row if check_pin(str(pin or ""), stored) else None
+
+    def customer(self, customer_id):
+        with self._lock:
+            row = self.db.execute(
+                "SELECT id, name, phone, notes, created_at FROM customers"
+                " WHERE id = ?", (int(customer_id),)).fetchone()
+        return dict(row) if row else None
+
+    def customer_by_phone(self, phone):
+        with self._lock:
+            row = self.db.execute(
+                "SELECT id, name, phone, notes, created_at FROM customers"
+                " WHERE phone = ?", (normalise_phone(phone),)).fetchone()
+        return dict(row) if row else None
+
+    def update_customer(self, customer_id, name=None, pin=None, notes=None):
+        sets, values = [], []
+        if name is not None:
+            name = str(name).strip()
+            if len(name) < 2:
+                raise BookingError("Please give us your name.")
+            sets.append("name = ?")
+            values.append(name)
+        if pin is not None:
+            sets.append("pin_hash = ?")
+            values.append(hash_pin(check_pin_format(pin)))
+        if notes is not None:
+            sets.append("notes = ?")
+            values.append(str(notes).strip())
+        if not sets:
+            return self.customer(customer_id)
+        values.append(int(customer_id))
+        with self._lock:
+            self.db.execute(
+                f"UPDATE customers SET {', '.join(sets)} WHERE id = ?", values)
+            self.db.commit()
+        return self.customer(customer_id)
+
+    def customers(self, search="", limit=200):
+        """Everyone with an account, newest first, for Jay's client list."""
+        search = str(search or "").strip()
+        query = ("SELECT c.id, c.name, c.phone, c.notes, c.created_at,"
+                 " (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id"
+                 "  AND b.status = 'completed') AS visits,"
+                 " (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id"
+                 "  AND b.status = 'no_show') AS no_shows,"
+                 " (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id"
+                 "  AND b.status IN ('booked', 'confirmed') AND b.day >= ?)"
+                 "  AS upcoming FROM customers c")
+        args = [self.today().isoformat()]
+        if search:
+            query += " WHERE c.name LIKE ? OR c.phone LIKE ?"
+            args += [f"%{search}%", f"%{normalise_phone(search) or search}%"]
+        query += " ORDER BY c.id DESC LIMIT ?"
+        args.append(int(limit))
+        with self._lock:
+            return [dict(r) for r in self.db.execute(query, args)]
+
+    # -------------------------------------------------------------- sessions
+
+    def start_session(self, customer_id):
+        """Sign a customer in for SESSION_DAYS and hand back their token."""
+        token = secrets.token_urlsafe(24)
+        expires = self.now() + timedelta(days=SESSION_DAYS)
+        with self._lock:
+            self.db.execute(
+                "INSERT INTO client_sessions (token, customer_id, expires_at)"
+                " VALUES (?, ?, ?)",
+                (token, int(customer_id), expires.isoformat(timespec="seconds")))
+            self.db.execute("DELETE FROM client_sessions WHERE expires_at < ?",
+                            (self.now().isoformat(timespec="seconds"),))
+            self.db.commit()
+        return token
+
+    def session_customer(self, token):
+        """The account behind a session cookie, or None."""
+        if not token:
+            return None
+        with self._lock:
+            row = self.db.execute(
+                "SELECT customer_id, expires_at FROM client_sessions"
+                " WHERE token = ?", (str(token),)).fetchone()
+        if not row:
+            return None
+        if row["expires_at"] < self.now().isoformat(timespec="seconds"):
+            self.end_session(token)
+            return None
+        return self.customer(row["customer_id"])
+
+    def end_session(self, token):
+        with self._lock:
+            self.db.execute("DELETE FROM client_sessions WHERE token = ?",
+                            (str(token or ""),))
+            self.db.commit()
+
+    def end_all_sessions(self, customer_id):
+        """Used when a PIN changes - every other phone gets signed out."""
+        with self._lock:
+            self.db.execute("DELETE FROM client_sessions WHERE customer_id = ?",
+                            (int(customer_id),))
+            self.db.commit()
+
+    # ------------------------------------------------- a customer's own diary
+
+    def customer_bookings(self, customer_id, upcoming=True, limit=100):
+        today = self.today().isoformat()
+        if upcoming:
+            query = ("SELECT * FROM bookings WHERE customer_id = ?"
+                     " AND status IN (?, ?) AND day >= ?"
+                     " ORDER BY day, start_min LIMIT ?")
+            args = (int(customer_id), *LIVE, today, int(limit))
+        else:
+            query = ("SELECT * FROM bookings WHERE customer_id = ?"
+                     " AND (day < ? OR status NOT IN (?, ?))"
+                     " ORDER BY day DESC, start_min DESC LIMIT ?")
+            args = (int(customer_id), today, *LIVE, int(limit))
+        with self._lock:
+            return [self._row(r) for r in self.db.execute(query, args)]
+
+    def owned_booking(self, customer_id, booking_id):
+        booking = self.booking(booking_id)
+        if not booking or booking["customer_id"] != int(customer_id):
+            raise BookingError("That booking is not on your account.")
+        return booking
+
+    def cancel_own(self, customer_id, booking_id):
+        """A customer calling off one of their own appointments."""
+        booking = self.owned_booking(customer_id, booking_id)
+        if booking["status"] not in LIVE:
+            raise BookingError(f"That booking is already {booking['status']}.")
+        if (booking["day"], booking["start_min"]) < \
+                (self.today().isoformat(), self.now_minutes()):
+            raise BookingError(
+                "That appointment has already started - please phone the shop.")
+        return self.set_status(booking["id"], "cancelled")
+
+    # --------------------------------------------------------------- repeats
+
+    def repeat_dates(self, first_day, every_weeks, times):
+        """The dates of a repeat: same weekday, every so many weeks."""
+        every_weeks, times = int(every_weeks), int(times)
+        if every_weeks not in REPEAT_EVERY:
+            raise BookingError("A repeat runs every 1, 2, 3 or 4 weeks.")
+        if not (2 <= times <= MAX_REPEATS):
+            raise BookingError(f"A repeat runs 2 to {MAX_REPEATS} times.")
+        try:
+            start = date.fromisoformat(str(first_day))
+        except ValueError:
+            raise BookingError("That is not a valid date.")
+        return [(start + timedelta(weeks=every_weeks * n)).isoformat()
+                for n in range(times)]
+
+    def plan_repeat(self, service_id, first_day, start_min, every_weeks, times):
+        """What a repeat would look like, before anything is written.
+
+        Every date is checked the way a single booking is - the shop has to
+        be open, the service has to finish before closing, and the chair has
+        to be free - so the customer sees which dates are theirs and which
+        ones they will have to arrange another way.
+        """
+        service = self.service(service_id)
+        if not service or not service["active"]:
+            raise BookingError("That service is not being booked online.")
+        start_min = int(start_min)
+        duration = int(service["duration_min"])
+        end_min = start_min + duration
+        plan = []
+        for day in self.repeat_dates(first_day, every_weeks, times):
+            info = self.day_info(day)
+            entry = {"day": day, "date_label": info["label"], "ok": False,
+                     "time": sched.friendly(start_min), "reason": ""}
+            if info["closed"]:
+                entry["reason"] = f"closed ({info['reason'].lower()})"
+            elif start_min < info["open_min"] or end_min > info["close_min"]:
+                entry["reason"] = "outside the shop's hours that day"
+            elif start_min < self.earliest_start(day):
+                entry["reason"] = "too soon"
+            elif any(sched.overlaps(start_min, end_min, busy_start, busy_end)
+                     for busy_start, busy_end in self.busy_intervals(day)):
+                entry["reason"] = "already taken"
+            else:
+                entry["ok"] = True
+            plan.append(entry)
+        return {"service": service, "plan": plan,
+                "free": sum(1 for entry in plan if entry["ok"]),
+                "start_min": start_min, "time": sched.friendly(start_min),
+                "every_weeks": int(every_weeks), "times": int(times)}
+
+    def create_repeat(self, customer_id, service_id, first_day, start_min,
+                      every_weeks, times, notes=""):
+        """Book the dates of a repeat that are free, and say which were not."""
+        customer = self.customer(customer_id)
+        if not customer:
+            raise BookingError("Please sign in first.")
+        preview = self.plan_repeat(service_id, first_day, start_min,
+                                   every_weeks, times)
+        if not preview["free"]:
+            raise BookingError(
+                "None of those dates are free - try another time or day.")
+        with self._lock:
+            cur = self.db.execute(
+                "INSERT INTO series (customer_id, service_id, first_day,"
+                " start_min, every_weeks, times, notes, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (int(customer_id), preview["service"]["id"], str(first_day),
+                 int(start_min), int(every_weeks), int(times),
+                 str(notes or "").strip(),
+                 self.now().isoformat(timespec="seconds")))
+            self.db.commit()
+            series_id = cur.lastrowid
+
+        booked, missed = [], []
+        for entry in preview["plan"]:
+            if not entry["ok"]:
+                missed.append(entry)
+                continue
+            try:
+                booked.append(self.create_booking(
+                    entry["day"], start_min, preview["service"]["id"],
+                    customer["name"], customer["phone"], notes=notes,
+                    source="repeat", customer_id=customer["id"],
+                    series_id=series_id, ignore_horizon=True))
+            except BookingError as exc:     # taken in the seconds since the plan
+                missed.append(dict(entry, ok=False, reason=str(exc)))
+        if not booked:
+            with self._lock:
+                self.db.execute("DELETE FROM series WHERE id = ?", (series_id,))
+                self.db.commit()
+            raise BookingError(
+                "Those dates went while you were booking - please try again.")
+        return {"series": self.series(series_id), "booked": booked,
+                "missed": missed}
+
+    def series(self, series_id):
+        with self._lock:
+            row = self.db.execute("SELECT * FROM series WHERE id = ?",
+                                  (int(series_id),)).fetchone()
+        if not row:
+            return None
+        series = dict(row)
+        service = self.service(series["service_id"])
+        series["service_name"] = service["name"] if service else series["service_id"]
+        series["time"] = sched.friendly(series["start_min"])
+        series["weekday"] = date.fromisoformat(series["first_day"]).strftime("%A")
+        series["every"] = ("every week" if series["every_weeks"] == 1
+                           else f"every {series['every_weeks']} weeks")
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT * FROM bookings WHERE series_id = ? ORDER BY day",
+                (series["id"],)).fetchall()
+        series["bookings"] = [self._row(r) for r in rows]
+        today = self.today().isoformat()
+        series["remaining"] = [b for b in series["bookings"]
+                               if b["live"] and b["day"] >= today]
+        return series
+
+    def series_for_customer(self, customer_id, active_only=True):
+        query = "SELECT id FROM series WHERE customer_id = ?"
+        args = [int(customer_id)]
+        if active_only:
+            query += " AND status = 'active'"
+        query += " ORDER BY id DESC"
+        with self._lock:
+            ids = [r["id"] for r in self.db.execute(query, args)]
+        return [self.series(series_id) for series_id in ids]
+
+    def cancel_series(self, series_id, customer_id=None):
+        """Call off the rest of a repeat, leaving anything already done alone."""
+        series = self.series(series_id)
+        if not series or (customer_id is not None and
+                          series["customer_id"] != int(customer_id)):
+            raise BookingError("That repeat is not on your account.")
+        cancelled = 0
+        for booking in series["remaining"]:
+            self.set_status(booking["id"], "cancelled")
+            cancelled += 1
+        with self._lock:
+            self.db.execute("UPDATE series SET status = 'cancelled' WHERE id = ?",
+                            (series["id"],))
+            self.db.commit()
+        return {"series": self.series(series["id"]), "cancelled": cancelled}
 
     # ---------------------------------------------------------------- takings
 

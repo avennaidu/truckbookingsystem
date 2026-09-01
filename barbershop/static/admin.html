@@ -34,6 +34,7 @@
     <div class="tabs">
       <button data-tab="diary" class="on">Diary</button>
       <button data-tab="upcoming">Upcoming</button>
+      <button data-tab="clients">Clients</button>
       <button data-tab="hours">Hours &amp; days off</button>
       <button data-tab="services">Price list</button>
       <button data-tab="takings">Takings</button>
@@ -105,6 +106,19 @@
             <option value="60">Next 60 days</option>
           </select></div>
         <div id="upList" style="margin-top:12px"></div>
+      </section>
+    </div>
+
+    <!-- clients ---------------------------------------------------------- -->
+    <div id="tab-clients" class="hidden">
+      <section class="card">
+        <h2>Registered clients</h2>
+        <p class="small muted" style="margin-top:-6px">Everyone with a portal
+          account. Reset a PIN for anyone who has forgotten theirs &mdash; they
+          get signed out everywhere and sign in again with the new one.</p>
+        <div class="field"><label for="clientSearch">Search by name or number</label>
+          <input id="clientSearch" placeholder="Start typing"></div>
+        <div id="clientList"></div>
       </section>
     </div>
 
@@ -481,6 +495,42 @@ async function holiday(remove) {
   } catch (error) { flash(error.message); }
 }
 
+/* ------------------------------------------------------------- clients --- */
+
+async function loadClients() {
+  const search = encodeURIComponent($("clientSearch").value.trim());
+  const { clients } = await api(`/api/admin/clients?q=${search}`);
+  $("clientList").innerHTML = clients.length ? clients.map((c) => `
+    <div class="appt">
+      <div class="who">
+        <div><strong>${escape(c.name)}</strong>
+          ${c.upcoming ? `<span class="tag live">${c.upcoming} booked</span>` : ""}
+          ${c.no_shows ? `<span class="tag gone">${c.no_shows} no show</span>` : ""}
+        </div>
+        <div class="sub"><a href="tel:${escape(c.phone)}" class="gold"
+          style="text-decoration:none">${escape(c.phone)}</a>
+          &middot; ${c.visits} visit${c.visits === 1 ? "" : "s"}
+          &middot; joined ${escape(c.created_at.slice(0, 10))}</div>
+        <div class="row" style="margin-top:8px">
+          <input style="max-width:130px" inputmode="numeric"
+            id="pinFor-${c.id}" placeholder="New PIN">
+          <button class="small ghost" data-pin="${c.id}">Reset PIN</button>
+        </div>
+      </div>
+    </div>`).join("")
+    : `<p class="muted small">Nobody has registered yet.</p>`;
+  $("clientList").querySelectorAll("[data-pin]").forEach((button) => {
+    button.onclick = async () => {
+      const id = Number(button.dataset.pin);
+      try {
+        await api("/api/admin/client-pin", { id, pin: $(`pinFor-${id}`).value });
+        $(`pinFor-${id}`).value = "";
+        flash("PIN reset. Tell them the new one.", "good");
+      } catch (error) { flash(error.message); }
+    };
+  });
+}
+
 /* ------------------------------------------------------------ services --- */
 
 async function loadServices() {
@@ -580,6 +630,7 @@ async function savePin() {
 
 const onTab = {
   upcoming: loadUpcoming,
+  clients: loadClients,
   hours: showDayInfo,
   services: loadServices,
   takings: loadTakings,
@@ -595,7 +646,7 @@ document.querySelectorAll(".tabs button").forEach((button) => {
   button.onclick = async () => {
     document.querySelectorAll(".tabs button").forEach((b) =>
       b.classList.toggle("on", b === button));
-    ["diary", "upcoming", "hours", "services", "takings", "settings"]
+    ["diary", "upcoming", "clients", "hours", "services", "takings", "settings"]
       .forEach((name) => $(`tab-${name}`).classList
         .toggle("hidden", name !== button.dataset.tab));
     flash("");
@@ -617,6 +668,7 @@ $("dayPick").onchange = () => { state.day = $("dayPick").value; loadDay(); };
 $("wAdd").onclick = addWalkIn;
 $("bAdd").onclick = addBlock;
 $("upDays").onchange = loadUpcoming;
+$("clientSearch").oninput = loadClients;
 $("hDay").onchange = showDayInfo;
 $("hSave").onclick = () => saveHours("hours");
 $("hClose2").onclick = () => saveHours("closed");
