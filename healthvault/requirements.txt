@@ -1,6 +1,0 @@
-# QR generation. Pure Python, no dependencies of its own.
-segno>=1.6
-
-# Optional: text out of PDF lab reports and statements. Without it the
-# documents are still stored and catalogued, just not searched.
-pypdf>=4.0

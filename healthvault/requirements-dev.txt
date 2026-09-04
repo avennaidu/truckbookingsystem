@@ -1,6 +1,0 @@
--r requirements.txt
-pytest>=7.0
-
-# Used by tests/test_qr.py to prove a generated card actually decodes.
-# The QR tests skip themselves if it is missing.
-opencv-python-headless>=4.8
